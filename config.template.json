@@ -1,0 +1,84 @@
+{
+  "VT_API_KEY": "${VT_API_KEY}",
+  "spamhaus_method": "browser-fetch",
+  "sheet_id": "1VbNV67WJqFDKY-15h4NVNf2t5kCHTQ06Xim5MYf0RXg",
+  "sheet_tab": "Sheet1",
+  "sheet_webapp_url": "${SHEET_WEBAPP_URL}",
+  "sheet_webapp_token": "${SHEET_WEBAPP_TOKEN}",
+  "slack_webhook_url": "${SLACK_WEBHOOK_URL}",
+  "slack_channel": "#domain-hunt",
+  "target_per_run": 15,
+  "target_max_per_day": 20,
+  "price_ceiling_usd": 5,
+  "cadence_days": 1,
+  "harvest_created_before_year": 2008,
+  "raw_new_target_per_day": 180,
+  "harvest_pages_per_list": 4,
+  "harvest_window_hours": [
+    36,
+    120
+  ],
+  "min_hours_left_deliver": 12,
+  "urgent_hours": 24,
+  "uribl_batch_size": 15,
+  "uribl_batch_gap_seconds": 25,
+  "tiers": [
+    {
+      "id": "T1",
+      "wby_max": 2008,
+      "sh_min": 9.5,
+      "price_max": 1
+    },
+    {
+      "id": "T2",
+      "wby_max": 2008,
+      "sh_min": 9.5,
+      "price_max": 5
+    },
+    {
+      "id": "T3",
+      "wby_max": 2008,
+      "sh_min": 9.0,
+      "price_max": 5
+    },
+    {
+      "id": "T4",
+      "wby_max": 2013,
+      "sh_min": 9.5,
+      "price_max": 5
+    },
+    {
+      "id": "T5",
+      "wby_max": 2013,
+      "sh_min": 9.0,
+      "price_max": 5
+    }
+  ],
+  "keyword_wheel": [
+    "tech",
+    "soft",
+    "system",
+    "data",
+    "cyber",
+    "cloud",
+    "digital",
+    "logic",
+    "secure",
+    "solution",
+    "network",
+    "hosting",
+    "server",
+    "security",
+    "analytics",
+    "database",
+    "code",
+    "app",
+    "encrypt",
+    "telecom",
+    "firewall",
+    "integrat",
+    "website",
+    "sys"
+  ],
+  "note": "age<=2008 is where score>=9.5 domains live; 2013 tier (T4/T5) is last-resort fill only. 2026-07-14: price ceiling tightened to $5 (Rule 3) and keyword_wheel narrowed to IT-only tokens (Rule 2 dropped industrial/consulting/trade tokens)."
+}

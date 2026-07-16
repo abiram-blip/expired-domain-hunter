@@ -1,0 +1,51 @@
+// Expired Domain Hunter — sheet append + read webhook.
+// Deploy: open the Sheet > Extensions > Apps Script > paste this file >
+// Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy.
+// (Existing URL/token in config.json stay valid — same deployment, new version.)
+var TOKEN = 'REPLACE_WITH_SHEET_WEBAPP_TOKEN';
+
+function doGet(e) {
+  var out = ContentService.createTextOutput();
+  out.setMimeType(ContentService.MimeType.JSON);
+  try {
+    if (e.parameter.token !== TOKEN) {
+      out.setContent(JSON.stringify({ ok: false, error: 'bad token' }));
+      return out;
+    }
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(e.parameter.tab || 'Sheet1');
+    if (!sheet) {
+      out.setContent(JSON.stringify({ ok: false, error: 'no such tab' }));
+      return out;
+    }
+    var range = sheet.getDataRange();
+    var values = range.getValues();
+    var notes = range.getNotes();
+    out.setContent(JSON.stringify({ ok: true, values: values, notes: notes }));
+  } catch (err) {
+    out.setContent(JSON.stringify({ ok: false, error: String(err) }));
+  }
+  return out;
+}
+
+function doPost(e) {
+  var out = ContentService.createTextOutput();
+  out.setMimeType(ContentService.MimeType.JSON);
+  try {
+    var body = JSON.parse(e.postData.contents);
+    if (body.token !== TOKEN) {
+      out.setContent(JSON.stringify({ ok: false, error: 'bad token' }));
+      return out;
+    }
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(body.tab || 'Sheet1');
+    if (!sheet) {
+      out.setContent(JSON.stringify({ ok: false, error: 'no such tab' }));
+      return out;
+    }
+    var rows = body.rows || [];
+    for (var i = 0; i < rows.length; i++) sheet.appendRow(rows[i]);
+    out.setContent(JSON.stringify({ ok: true, appended: rows.length }));
+  } catch (err) {
+    out.setContent(JSON.stringify({ ok: false, error: String(err) }));
+  }
+  return out;
+}

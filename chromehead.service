@@ -1,0 +1,14 @@
+[Unit]
+Description=Dedicated headless Chrome for expired-domain-hunter
+After=network.target
+
+[Service]
+# Replace YOUR_USER and /home/YOUR_USER below with the actual VM login user before
+# installing (systemd %h/%i only expand in templated units, not here).
+User=YOUR_USER
+ExecStart=/usr/bin/chromium-browser --headless=new --remote-debugging-port=9223 --remote-debugging-address=127.0.0.1 --user-data-dir=/home/YOUR_USER/domain-hunter-chrome-profile --no-first-run --no-default-browser-check
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

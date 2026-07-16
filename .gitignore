@@ -1,0 +1,11 @@
+/config.json
+/.env
+/sheet_webapp.gs
+/ledger.json
+/ledger.json.bak
+/ledger.json.lock
+/ledger.json.*.bak
+/run/
+*.out
+*.err
+run.log
