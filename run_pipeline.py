@@ -113,9 +113,18 @@ def main():
     state("merge", "ok", merge_result.get("new", 0))
 
     # --- prescore (carryover + fresh) ---
+    # 2026-07-18 fix: harvest_new.json is an incremental cache that NEVER prunes a
+    # domain once written, even after it's later delivered+seen (merge_harvest only
+    # skips RE-adding seen domains from fresh raw harvest, it doesn't remove stale
+    # entries already sitting in the file from an earlier same-day session). Confirmed
+    # this caused 4 real duplicate deliveries (kordigital.com, vesttechinc.com,
+    # presentdigital.com, elyceumsoftware.com — delivered once interactively, then
+    # again via CI reading the same stale harvest_new.json). Re-check against the
+    # CURRENT ledger.seen here, defensively, regardless of what upstream already did.
+    seen_now = set(load(os.path.join(HERE, "ledger.json"), {}).get("seen", []))
     harvest_new = load(rfile("harvest_new.json"))
-    carry_doms = list(carry.keys())
-    fresh_doms = list(harvest_new.keys())
+    carry_doms = [d for d in carry.keys() if d.lower() not in seen_now]
+    fresh_doms = [d for d in harvest_new.keys() if d.lower() not in seen_now]
     open(rfile("carry_doms.txt"), "w").write("\n".join(carry_doms))
     open(rfile("fresh_doms.txt"), "w").write("\n".join(fresh_doms))
 
