@@ -25,10 +25,15 @@ import os
 import sys
 import urllib.request
 
-# gpt-4o pricing per million tokens, confirmed 2026-07-17 (openai.com pricing page) —
-# update here if OpenAI repricing makes the spend estimate drift noticeably.
-PRICE_PER_1M_INPUT = 2.50
-PRICE_PER_1M_OUTPUT = 10.00
+# 2026-07-18: switched gpt-4o -> gpt-4o-mini after a real side-by-side test against 20
+# known accept/reject cases from actual sheet feedback: 14/20 vs gpt-4o's 15/20 (not a
+# meaningful gap — the 4 misses were IDENTICAL on both models, a prompt-calibration
+# issue, not a model-capability one) at ~15x lower cost ($0.00045 vs $0.00662 for the
+# same 20-domain test batch). Pricing per million tokens, confirmed 2026-07-17
+# (openai.com pricing page) — update here if OpenAI reprices.
+MODEL = "gpt-4o-mini"
+PRICE_PER_1M_INPUT = 0.15
+PRICE_PER_1M_OUTPUT = 0.60
 STARTING_BALANCE_USD = float(os.environ.get("OPENAI_STARTING_BALANCE_USD", "5.0"))
 LOW_BALANCE_THRESHOLD_USD = float(os.environ.get("OPENAI_LOW_BALANCE_THRESHOLD_USD", "2.0"))
 SPEND_FILE = os.environ.get("OPENAI_SPEND_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "openai_spend.json"))
@@ -107,7 +112,7 @@ Return ONLY a JSON object mapping each input domain to {"verdict": "accept" or \
 def judge(domains):
     api_key = os.environ["OPENAI_API_KEY"]
     body = json.dumps({
-        "model": "gpt-4o",
+        "model": MODEL,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
