@@ -18,15 +18,25 @@ rules for a model that can't read this repo's memory files).
 
 - **`browser-harness` is an interactive tool** for an agent driving a live browser
   conversationally — not usable unattended, and not installed in this environment.
-  `ci_browser.py` replaces it: a deterministic Playwright script covering the 3
-  browser-dependent stages (harvest, Spamhaus, URIBL), callable exactly like any other
-  `hunt.py` subcommand. See its module docstring for two hard-won fixes: (a) Chrome's
-  cookie encryption is machine-specific, so session persistence uses a portable
-  plaintext-cookie-JSON + `context.add_cookies()` instead of copying the raw profile;
-  (b) check.spamhaus.org's Cloudflare challenge hard-blocks Playwright's headless mode
-  outright, so the browser runs HEADED under a virtual display (`xvfb-run` — the
-  workflow wraps `run_pipeline.py` in it, which covers every `ci_browser.py` call it
-  spawns).
+  `ci_browser.py` replaces it: a deterministic Playwright script, originally covering
+  harvest/Spamhaus/URIBL, now just harvest + URIBL (see below). See its module
+  docstring for two hard-won fixes: (a) Chrome's cookie encryption is machine-specific,
+  so session persistence uses a portable plaintext-cookie-JSON + `context.add_cookies()`
+  instead of copying the raw profile; (b) check.spamhaus.org's Cloudflare challenge
+  hard-blocks Playwright's headless mode outright, so the browser runs HEADED under a
+  virtual display (`xvfb-run`) for the stages that still use it.
+- **Spamhaus has NO browser stage in CI at all** — confirmed 2026-07-17: even headed +
+  `xvfb-run` + the full retry backoff, check.spamhaus.org's Cloudflare challenge is a
+  HARD block from GitHub Actions' IP range (24/24 domains stuck, 16 minutes wasted,
+  twice). Rather than keep fighting an IP-reputation problem with no free fix,
+  `run_pipeline.py` skips the browser check entirely: `hunt.py blocklist()` (which runs
+  right before it) already queries `dbl.spamhaus.org` via plain DNS as one of its 40+
+  zones — no browser, no Cloudflare, and it's the actual safety gate. Anything reaching
+  the Spamhaus step in CI has already cleared that. The web tool only ever added a
+  numeric reputation score for finer T1-vs-T3 tiering; CI-sourced domains just default
+  to the clean/best-tier score instead. `ci_browser.py spamhaus()` still exists (works
+  fine interactively from a residential IP) but the CI flow doesn't call it — don't
+  "fix" this by wiring it back in without solving the underlying IP-block first.
 - **Unattended `claude -p` needs a metered `ANTHROPIC_API_KEY`** — a real recurring
   cost/account the user wanted to avoid if the sequencing itself doesn't need an LLM
   (it doesn't; it's 13 deterministic steps). The ONE place real judgment is
@@ -40,10 +50,11 @@ rules for a model that can't read this repo's memory files).
 `hunt.py plan-harvest` → `ci_browser.py harvest` (exit code 2 = session expired, see
 below) → `hunt.py merge-harvest` → `hunt.py prescore` (carryover + fresh candidates) →
 `name_judge.py` (the one LLM call — accept/reject verdict per candidate, same taste
-rules as the interactive pipeline) → `hunt.py blocklist` → `ci_browser.py spamhaus` →
-`ci_browser.py uribl` → `hunt.py archive` (retries transient errors up to twice, never
-lets an errored check silently pass as clean) → `hunt.py vt` → `hunt.py tier` → rank +
-build `shortlist.json` (delivery guard: <12h left excluded) → `hunt.py append` (on
+rules as the interactive pipeline) → `hunt.py blocklist` (already includes a Spamhaus
+DNS check, see below — no separate browser stage) → `ci_browser.py uribl` →
+`hunt.py archive` (retries transient errors up to twice, never lets an errored check
+silently pass as clean) → `hunt.py vt` → `hunt.py tier` → rank + build `shortlist.json`
+(delivery guard: <12h left excluded) → `hunt.py append` (on
 non-zero exit, alerts Slack with the TSV location instead of guessing whether it
 landed — exit 3 especially must never be blindly retried, risk of double-delivery) →
 `hunt.py slack-post` → `hunt.py commit` (`--harvested` gets the taste-rejects, same
