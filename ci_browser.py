@@ -49,7 +49,12 @@ def _browser(pw):
     ctx = pw.chromium.launch_persistent_context(
         PROFILE_DIR,
         headless=False,
-        args=["--no-first-run", "--no-default-browser-check", "--disable-blink-features=AutomationControlled"],
+        viewport={"width": 1920, "height": 1080},
+        args=[
+            "--no-first-run", "--no-default-browser-check",
+            "--disable-blink-features=AutomationControlled",
+            "--window-size=1920,1080",
+        ],
     )
     if os.path.exists(COOKIES_JSON):
         ctx.add_cookies(json.load(open(COOKIES_JSON)))
@@ -119,27 +124,44 @@ def harvest(plan_path, outdir):
 def spamhaus(domains_path, out_path):
     domains = open(domains_path).read().split()
     out = {}
+    unknown_count = 0
     with sync_playwright() as pw:
         ctx = _browser(pw)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         for d in domains:
             page.goto(f"https://check.spamhaus.org/results?query={d}", timeout=30000)
-            page.wait_for_timeout(1500)
-            title = page.title()
-            body = page.inner_text("body")
-            if "Just a moment" in title or body[:50].strip().startswith("Loading"):
-                page.wait_for_timeout(4000)
+            title, body = "", ""
+            # Cloudflare's JS challenge can take longer from some IPs than others
+            # (confirmed 2026-07-17: consistently slower on a GitHub Actions runner
+            # than a home IP) — poll with increasing waits rather than one fixed pause.
+            for wait_s in (2, 4, 6, 10, 15):
+                page.wait_for_timeout(wait_s * 1000)
                 title = page.title()
                 body = page.inner_text("body")
+                stripped = body.strip()
+                # Past the Cloudflare challenge AND the SPA has actually rendered content —
+                # an empty/near-empty body means the client-side fetch hasn't finished yet,
+                # NOT that the check is done (confirmed 2026-07-17: exiting early on empty
+                # body silently produced "unknown" for a domain that had actually cleared
+                # the challenge, just hadn't rendered its result text yet).
+                if "Just a moment" not in title and len(stripped) > 20 and not stripped.startswith("Loading"):
+                    break
             if "Not Listed" in title or "no issues" in body:
                 out[d] = {"status": "not_listed", "score": 10.0}
             elif "Listed" in title:
                 out[d] = {"status": "listed", "score": 0.0, "title": title}
             else:
                 out[d] = {"status": "unknown", "title": title, "body_snippet": body[:150]}
+                unknown_count += 1
             time.sleep(2)
         ctx.close()
     json.dump(out, open(out_path, "w"))
+    # If EVERY domain came back unknown, this is very likely a systemic block (e.g.
+    # this environment's IP being challenged harder than a residential IP), not normal
+    # per-request flakiness — surface that distinction so it isn't read as "0 delivered,
+    # nothing wrong" on a quiet failure.
+    if domains and unknown_count == len(domains):
+        print("SPAMHAUS_SYSTEMIC_FAILURE: all domains stuck on Cloudflare challenge", file=sys.stderr)
     print(json.dumps({d: v["status"] for d, v in out.items()}))
 
 

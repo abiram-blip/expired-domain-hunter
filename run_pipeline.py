@@ -159,10 +159,18 @@ def main():
     open(rfile("survivors.txt"), "w").write("\n".join(survivors))
 
     # --- spamhaus ---
-    r = run(["python3", "ci_browser.py", "spamhaus", rfile("survivors.txt"), rfile("spamhaus.json")])
+    r = run(["python3", "ci_browser.py", "spamhaus", rfile("survivors.txt"), rfile("spamhaus.json")], capture_output=True, text=True)
+    print(r.stdout)
     spamhaus_data = load(rfile("spamhaus.json"))
+    pre_count = len(survivors)
     survivors = [d for d in survivors if spamhaus_data.get(d, {}).get("status") == "not_listed"]
     state("spamhaus", "ok", len(survivors))
+    if "SPAMHAUS_SYSTEMIC_FAILURE" in (r.stderr or ""):
+        slack("⚠️ ALERT: Spamhaus check got stuck on Cloudflare's challenge for EVERY "
+              f"candidate this run ({pre_count} domains) — likely this runner's IP being "
+              "challenged harder than a residential IP, not a normal per-domain flake. "
+              "Worth investigating (proxy, different runner region, or a Spamhaus API tier) "
+              "if this repeats.")
     if not survivors:
         finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed Spamhaus")
         return
