@@ -1,4 +1,0 @@
-# Add via `crontab -e` on the VM. Adjust hours for the VM's timezone vs the 07:30/07:55
-# IST equivalent (e.g. `sudo timedatectl set-timezone Asia/Kolkata` to match directly).
-30 7 * * * /path/to/expired-domain-hunter/run_hunt_vm.sh
-55 7 * * * /path/to/expired-domain-hunter/run_hunt_vm.sh

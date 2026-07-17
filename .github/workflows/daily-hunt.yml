@@ -1,0 +1,93 @@
+name: Daily Domain Hunt
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 07:30 IST == 02:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-hunt
+  cancel-in-progress: false
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout state repo
+        uses: actions/checkout@v4
+        with:
+          repository: abiram-blip/expired-domain-hunter-state
+          token: ${{ secrets.STATE_REPO_TOKEN }}
+          path: state
+          persist-credentials: true
+
+      - name: Compute today's run date
+        run: echo "EDH_RUN_DATE=$(date +%F)" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install Python deps + Playwright browser
+        run: |
+          pip install -r requirements.txt
+          python3 -m playwright install --with-deps chromium
+          sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Install claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Restore state (ledger.json, run/, session cookie)
+        run: |
+          cp state/ledger.json ./ledger.json
+          cp state/ledger.json.bak ./ledger.json.bak 2>/dev/null || true
+          rm -rf ./run && cp -r state/run ./run
+          mkdir -p "./run/$EDH_RUN_DATE"
+          cp state/expireddomains_cookies.json ~/expireddomains_cookies.json
+
+      - name: Render config.json
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
+          SHEET_WEBAPP_TOKEN: ${{ secrets.SHEET_WEBAPP_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python3 render_config.py
+
+      - name: Run daily hunt
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          xvfb-run -a claude -p --model claude-sonnet-5 "Run the daily expired-domain hunt per RUNBOOK_CI.md (read RUNBOOK.md first for the full pipeline spec, tier table, and name-grading rules — RUNBOOK_CI.md only overrides how the browser-dependent stages work). EDH_RUN_DATE=$EDH_RUN_DATE is already set. Start with 'python3 hunt.py status --brief'; write run/\$EDH_RUN_DATE/state.json stages as you go; follow the resume protocol if a stage file already exists for today." \
+            2>&1 | tee "run/$EDH_RUN_DATE/headless.log"
+
+      - name: Save state back
+        if: always()
+        run: |
+          cp ./ledger.json state/ledger.json
+          cp ./ledger.json.bak state/ledger.json.bak 2>/dev/null || true
+          rm -rf state/run && cp -r ./run state/run
+          cp ~/expireddomains_cookies.json state/expireddomains_cookies.json 2>/dev/null || true
+          cd state
+          git config user.email "actions@github.com"
+          git config user.name "daily-hunt-bot"
+          git add -A
+          git diff --cached --quiet || git commit -m "state: $EDH_RUN_DATE"
+          git push
+
+      - name: Alert on failure
+        if: failure()
+        run: |
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"⚠️ ALERT: daily-hunt workflow failed — check https://github.com/abiram-blip/expired-domain-hunter/actions for logs.\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
