@@ -91,6 +91,15 @@ shortfall, delivery ambiguity, crashes). The workflow's own final step posts a g
 failure alert too, as a catch-all for anything that crashes before `slack()` could run
 (e.g. a Python import error).
 
+**OpenAI low-balance alert**: `name_judge.py` tracks estimated cumulative spend in
+`state/openai_spend.json` (persists in the state repo, not the ephemeral runner) and
+posts a Slack alert whenever estimated remaining balance drops below
+`OPENAI_LOW_BALANCE_THRESHOLD_USD` (default $2, workflow env). This is a SELF-TRACKED
+ESTIMATE from token usage × current gpt-4o pricing — OpenAI has no reliable balance-check
+API for modern project-scoped keys. After a top-up, tell Claude the new balance so it can
+reset that file (or just delete it — a missing file restarts at $0 spent against
+`OPENAI_STARTING_BALANCE_USD`).
+
 ## Known simplifications vs. the interactive pipeline
 
 - No `URGENT <24h` sort-to-top flag for domains 12-24h from auction end (RUNBOOK.md's
