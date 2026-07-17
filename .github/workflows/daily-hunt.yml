@@ -33,19 +33,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-
       - name: Install Python deps + Playwright browser
         run: |
           pip install -r requirements.txt
           python3 -m playwright install --with-deps chromium
           sudo apt-get update && sudo apt-get install -y xvfb
-
-      - name: Install claude CLI
-        run: npm install -g @anthropic-ai/claude-code
 
       - name: Restore state (ledger.json, run/, session cookie)
         run: |
@@ -65,11 +57,11 @@ jobs:
 
       - name: Run daily hunt
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          xvfb-run -a claude -p --model claude-sonnet-5 "Run the daily expired-domain hunt per RUNBOOK_CI.md (read RUNBOOK.md first for the full pipeline spec, tier table, and name-grading rules — RUNBOOK_CI.md only overrides how the browser-dependent stages work). EDH_RUN_DATE=$EDH_RUN_DATE is already set. Start with 'python3 hunt.py status --brief'; write run/\$EDH_RUN_DATE/state.json stages as you go; follow the resume protocol if a stage file already exists for today." \
-            2>&1 | tee "run/$EDH_RUN_DATE/headless.log"
+          mkdir -p "run/$EDH_RUN_DATE"
+          xvfb-run -a python3 run_pipeline.py 2>&1 | tee "run/$EDH_RUN_DATE/headless.log"
 
       - name: Save state back
         if: always()

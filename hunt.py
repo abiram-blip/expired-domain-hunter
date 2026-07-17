@@ -105,9 +105,14 @@ def vt(doms):
 
 def archive(doms):
     import urllib.request, concurrent.futures as cf
-    FLAGS={'adult':['porn','xxx',' sex ','nude','escort','webcam','milf',' anal ','pussy','hardcore',' adult ','tgp','hentai','erotic'],
-           'gambling':['casino','poker','betting',' slots ','sportsbook','gambl'],
+    # 2026-07-17 fix: naive substring matching false-positived on 'cialis' inside
+    # 'specialists' (a mental-health-furniture site's real content, not pharma spam).
+    # Word-boundary regex for every flag word except the deliberate stem 'gambl'
+    # (must match as a prefix of gambling/gambler/gamble, no trailing boundary).
+    FLAGS={'adult':['porn','xxx','sex','nude','escort','webcam','milf','anal','pussy','hardcore','adult','tgp','hentai','erotic'],
+           'gambling':['casino','poker','betting','slots','sportsbook','gambl'],
            'pharma':['viagra','cialis','online pharmacy','tramadol','levitra']}
+    _FLAG_RE={c:[re.compile(r'\b'+re.escape(w)+(r'' if w=='gambl' else r'\b')) for w in ws] for c,ws in FLAGS.items()}
     def one(d):
         try:
             cdx=f"https://web.archive.org/cdx/search/cdx?url={d}&output=json&fl=timestamp&filter=statuscode:200&collapse=timestamp:6&limit=100"
@@ -119,7 +124,7 @@ def archive(doms):
                     txt+=" "+re.sub(r'<[^>]+>',' ',h).lower()
                 except Exception: pass
                 time.sleep(0.5)
-            hits={c:[w for w in ws if w in txt] for c,ws in FLAGS.items()}
+            hits={c:[rx.pattern for rx in rxs if rx.search(txt)] for c,rxs in _FLAG_RE.items()}
             return d,{"years":len(ts),"first":ts[0][:4] if ts else None,"last":ts[-1][:4] if ts else None,
                       "flags":{c:v for c,v in hits.items() if v}}
         except Exception as e:
