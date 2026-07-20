@@ -66,6 +66,7 @@ jobs:
           OPENAI_STARTING_BALANCE_USD: "5.0"
           OPENAI_LOW_BALANCE_THRESHOLD_USD: "2.0"
         run: |
+          set -o pipefail
           mkdir -p "run/$EDH_RUN_DATE"
           xvfb-run -a python3 run_pipeline.py 2>&1 | tee "run/$EDH_RUN_DATE/headless.log"
 
