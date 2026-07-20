@@ -1,0 +1,61 @@
+name: Daily Sheet Sync
+
+on:
+  schedule:
+    - cron: '45 2 * * *'   # 08:15 IST == 02:45 UTC — after daily-hunt.yml (07:30 IST) finishes
+  workflow_dispatch: {}
+
+concurrency:
+  group: daily-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Checkout state repo
+        uses: actions/checkout@v4
+        with:
+          repository: abiram-blip/expired-domain-hunter-state
+          token: ${{ secrets.STATE_REPO_TOKEN }}
+          path: state
+          persist-credentials: true
+
+      - name: Compute today's run date
+        run: echo "EDH_RUN_DATE=$(date +%F)" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run sheet sync
+        env:
+          SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
+          SHEET_WEBAPP_TOKEN: ${{ secrets.SHEET_WEBAPP_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          EDH_STATE_DIR: ${{ github.workspace }}/state
+        run: |
+          set -o pipefail
+          python3 sync_pipeline.py
+
+      - name: Save state back
+        if: always()
+        run: |
+          cd state
+          git config user.email "actions@github.com"
+          git config user.name "daily-sync-bot"
+          git add sync_seen.json taste_log.json
+          git diff --cached --quiet || git commit -m "sync: $EDH_RUN_DATE"
+          git push
+
+      - name: Alert on failure
+        if: failure()
+        run: |
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"⚠️ ALERT: daily-sync workflow failed — check https://github.com/abiram-blip/expired-domain-hunter/actions for logs.\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
