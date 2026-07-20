@@ -79,8 +79,12 @@ def harvest(plan_path, outdir):
             tag = f"KW_{e['list']}_{e['token']}" if e["pass"] == "KW" else f"{e['pass']}_{e['list']}"
             outpath = os.path.join(outdir, f"harvest_{tag}.json")
             if os.path.exists(outpath):
-                summary.append((tag, "skip-exists"))
-                continue
+                existing = json.load(open(outpath))
+                if existing.keys() - {"_captured_at"}:
+                    summary.append((tag, "skip-exists"))
+                    continue
+                # Stub from a prior failed pass (LOGIN-WALL / no-table) — no real
+                # rows were captured, so this list still needs harvesting.
             rows_out = {}
             for pageno in range(e["pages"]):
                 url = e["url"] if pageno == 0 else e["url"] + f"&start={pageno*25}"
