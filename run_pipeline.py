@@ -82,9 +82,9 @@ def main():
     # --- precheck ---
     cookies_path = os.environ.get("EDH_COOKIES_JSON", os.path.expanduser("~/expireddomains_cookies.json"))
     if not os.path.exists(cookies_path) or os.path.getsize(cookies_path) < 10:
-        stop("no expireddomains.net session cookie found — re-run extract_cookies.py "
-             "against the Mac's live dedicated Chrome and push a fresh "
-             "expireddomains_cookies.json to the state repo.")
+        stop("no expireddomains.net session cookie found. Open Claude Code and say "
+             "the domain hunt needs a login fix — it may ask you to check your email "
+             "for an MFA code.")
     state("precheck", "ok", 1)
 
     # --- carryover ---
@@ -97,8 +97,9 @@ def main():
     dump(rfile("plan.json"), plan)
     r = run(["python3", "ci_browser.py", "harvest", rfile("plan.json"), RUNDIR])
     if r.returncode == 2:
-        stop("expireddomains.net session expired mid-harvest (login wall) — "
-             "re-run extract_cookies.py and push a fresh cookie to the state repo.")
+        stop("expireddomains.net logged the session out mid-harvest. Open Claude Code "
+             "and say the domain hunt needs a login fix — check your email for an MFA "
+             "code when it asks, and reply there (not here in Slack) with the code.")
     raw_total = 0
     harvest_files = [f for f in os.listdir(RUNDIR) if f.startswith("harvest_") and f != "harvest_new.json"]
     for f in harvest_files:
