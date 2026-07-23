@@ -78,7 +78,15 @@
     "firewall",
     "integrat",
     "website",
-    "sys"
+    "sys",
+    "group",
+    "corp",
+    "capital",
+    "holding",
+    "partner",
+    "venture",
+    "associat",
+    "company"
   ],
-  "note": "age<=2008 is where score>=9.5 domains live; 2013 tier (T4/T5) is last-resort fill only. 2026-07-14: price ceiling tightened to $5 (Rule 3) and keyword_wheel narrowed to IT-only tokens (Rule 2 dropped industrial/consulting/trade tokens)."
+  "note": "age<=2008 is where score>=9.5 domains live; 2013 tier (T4/T5) is last-resort fill only. 2026-07-14: price ceiling tightened to $5 (Rule 3) and keyword_wheel narrowed to IT-only tokens (Rule 2 dropped industrial/consulting/trade tokens). 2026-07-23: added 8 neutral-suffix tokens (group/corp/capital/holding/partner/venture/associat/company) so the daily wheel also covers 'abstract + neutral suffix' fit (prescore's _abstract_ok), not just IT tokens — a manual pass on these same 8 tokens found 28 real A-fit candidates in one round, a angle the wheel had never searched before."
 }
