@@ -450,7 +450,14 @@ def carryover(date=None):
     if not os.path.isdir(RUNDIR): return {}
     dirs=sorted((d for d in os.listdir(RUNDIR) if re.match(r'\d{4}-\d{2}-\d{2}$',d) and d<today()),reverse=True)
     dirs=[date] if date else dirs[:3]
-    led_del=set(load_ledger().get('delivered',[]))
+    l=load_ledger()
+    led_del=set(l.get('delivered',[]))
+    # 2026-07-23 fix: a domain added to ledger.seen via commit --harvested (a taste
+    # reject that never reached a PASS_CHECKS stage file, so it can't land in `failed`
+    # either) was resurfacing here forever — carryover() only ever excluded `delivered`,
+    # not the broader `seen` blacklist. Confirmed live: 16 of 52 A-fit carryover
+    # candidates on 2026-07-23 were exact repeats of 2026-07-21's manual taste rejects.
+    led_seen=set(w.lower() for w in l.get('seen',[]))
     min_h=cfg().get('min_hours_left_deliver',12); now=time.time()
     def rj_day(day,n):
         try: return json.load(open(os.path.join(RUNDIR,day,n+'.json')))
@@ -473,7 +480,7 @@ def carryover(date=None):
         harvest=rj('harvest_new'); delivered=set(x.lower() for x in (rj('delivered') or []))
         for d,meta in harvest.items():
             dl=d.lower()
-            if dl in out or dl in delivered or dl in led_del or dl in failed: continue
+            if dl in out or dl in delivered or dl in led_del or dl in led_seen or dl in failed: continue
             ends=meta.get('auction_ends_at')
             if ends is None: continue  # Rule 1 (2026-07-14): auction-only, no exceptions
             if (ends-now)/3600 < min_h+2: continue  # +2h margin: must survive today's funnel too
