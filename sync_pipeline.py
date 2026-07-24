@@ -28,7 +28,7 @@ STATE_DIR = os.environ.get("EDH_STATE_DIR", os.path.join(HERE, "state"))
 SEEN_PATH = os.path.join(STATE_DIR, "sync_seen.json")
 TASTE_LOG_PATH = os.path.join(STATE_DIR, "taste_log.json")
 
-ACCEPT_STATUSES = {"submitted bid", "accepted", "won"}
+ACCEPT_STATUSES = {"submitted bid", "submitted", "accepted", "won"}
 REJECT_STATUSES = {"no", "invalid", "not a good name", "rejected", "weird name"}
 # Bid-outcome statuses, not name-taste signals — tracked in the Slack summary
 # but not written to taste_log.json (that log is for name-quality feedback).
