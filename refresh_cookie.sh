@@ -17,6 +17,8 @@ LOG="$DIR/refresh_cookie.log"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export BU_NAME=domainhunt
 export BU_CDP_URL=http://127.0.0.1:9223
+export EDH_DIR="$DIR"          # browser-harness runs code in the daemon's cwd, not ours —
+cd "$DIR" || exit 1            # so the heredoc uses an ABSOLUTE path (EDH_DIR) for extract_cookies.py
 
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
@@ -53,8 +55,13 @@ if ! lsof -i :9223 -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 # 2) Validate login + (if valid) extract fresh cookie, inside one browser-harness session.
-OUT=$(browser-harness <<'PY' 2>/dev/null
-import json, time
+#    CRITICAL: an empty/errored harness result means we COULD NOT CHECK — it must NOT be
+#    treated as a logout (that would fire a false MFA alarm daily). Only an explicit
+#    COOKIE_STATUS=INVALID from a harness that actually ran counts as logged out.
+#    Retry to ride out daemon cold-starts; log stderr so real failures are diagnosable.
+run_harness() {
+  browser-harness <<'PY' 2>>"$LOG"
+import json, os, time
 tabs = list_tabs()
 ed = next((t for t in tabs if "expireddomains.net" in (t.get("url","") or "")), None)
 status = "INVALID"
@@ -66,15 +73,29 @@ if ed:
       logout:/log\s?out/i.test(document.body?document.body.innerText:'')||!!document.querySelector('a[href*=logout]'),
       pw:!!document.querySelector('input[type=password]')}))()"""))
     if chk["logout"] and not chk["pw"]:
-        exec(open("extract_cookies.py").read())   # writes /tmp cookie + meta
+        exec(open(os.path.join(os.environ["EDH_DIR"], "extract_cookies.py")).read())  # abs path
         status = "VALID"
 print("COOKIE_STATUS=" + status)
 PY
-)
-log "browser-harness: $(echo "$OUT" | tr '\n' ' ')"
-STATUS=$(echo "$OUT" | sed -n 's/.*COOKIE_STATUS=\([A-Z]*\).*/\1/p' | tail -1)
+}
 
-# 3) Act on the result.
+STATUS=""
+for attempt in 1 2 3; do
+  OUT=$(run_harness)
+  log "harness attempt $attempt: $(echo "$OUT" | grep COOKIE_STATUS || echo '(no status line)')"
+  if echo "$OUT" | grep -q "COOKIE_STATUS=VALID";   then STATUS=VALID;   break; fi
+  if echo "$OUT" | grep -q "COOKIE_STATUS=INVALID"; then STATUS=INVALID; break; fi
+  sleep 6   # daemon warmup / transient CDP hiccup
+done
+
+# 3) Act on the result — three distinct outcomes.
+if [ "$STATUS" != "VALID" ] && [ "$STATUS" != "INVALID" ]; then
+  # Neither — browser-harness never produced a status. Infra problem, NOT a logout.
+  alert "cookie refresh could not run browser-harness after 3 tries (daemon/CDP issue) — cookie NOT refreshed. Check the Mac; CI will run on the last good cookie."
+  health_line error -
+  echo "HARNESS ERROR — could not check"
+  exit 3
+fi
 if [ "$STATUS" = "VALID" ] && [ -s /tmp/expireddomains_cookies.json ]; then
   CAP=$(python3 -c "import json;print(json.load(open('/tmp/expireddomains_cookies.meta.json'))['_captured_at'])" 2>/dev/null)
   [ -d "$STATE_DIR/.git" ] || gh repo clone "$STATE_SLUG" "$STATE_DIR" -- -q
