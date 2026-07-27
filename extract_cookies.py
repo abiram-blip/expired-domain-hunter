@@ -36,4 +36,12 @@ for c in edh:
     pw_cookies.append(pc)
 
 json.dump(pw_cookies, open("/tmp/expireddomains_cookies.json", "w"), indent=2)
-print(f"wrote {len(pw_cookies)} cookies to /tmp/expireddomains_cookies.json")
+
+# Sidecar with a capture timestamp. The cookie file itself must stay a bare list
+# (Playwright add_cookies() takes a list), so the freshness signal lives here.
+# CI precheck reads this to fail loud/early when the Mac refresh job didn't run,
+# instead of dying deep in harvest on a stale-cookie login wall.
+import time as _time
+_meta = {"_captured_at": int(_time.time()), "validated": True, "n_cookies": len(pw_cookies)}
+json.dump(_meta, open("/tmp/expireddomains_cookies.meta.json", "w"), indent=2)
+print(f"wrote {len(pw_cookies)} cookies + meta (captured_at={_meta['_captured_at']}) to /tmp/")

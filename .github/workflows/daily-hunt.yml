@@ -46,6 +46,7 @@ jobs:
           rm -rf ./run && cp -r state/run ./run
           mkdir -p "./run/$EDH_RUN_DATE"
           cp state/expireddomains_cookies.json ~/expireddomains_cookies.json
+          cp state/expireddomains_cookies.meta.json ~/expireddomains_cookies.meta.json 2>/dev/null || true
 
       - name: Render config.json
         env:
@@ -59,6 +60,10 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # External dead-man's-switch (healthchecks.io-style). Pinged on run completion;
+          # the monitor alerts if no ping lands in the daily window. No-op until the
+          # HEALTHCHECK_PING_URL secret is set. See plan find-a-way-to-glistening-grove.
+          HEALTHCHECK_PING_URL: ${{ secrets.HEALTHCHECK_PING_URL }}
           # Spend tracker lives in the STATE repo (persists across ephemeral runs), not
           # the code repo. OPENAI_STARTING_BALANCE_USD: update via a repo variable if it
           # ever changes; ask Claude to reset state/openai_spend.json after a top-up.
@@ -76,7 +81,9 @@ jobs:
           cp ./ledger.json state/ledger.json
           cp ./ledger.json.bak state/ledger.json.bak 2>/dev/null || true
           rm -rf state/run && cp -r ./run state/run
-          cp ~/expireddomains_cookies.json state/expireddomains_cookies.json 2>/dev/null || true
+          # NOTE: CI no longer writes the cookie back. The Mac refresh job
+          # (refresh_cookie.sh) is the SOLE writer of expireddomains_cookies.json, so CI
+          # cannot overwrite the authoritative fresh cookie with a rotated/degraded value.
           cd state
           git config user.email "actions@github.com"
           git config user.name "daily-hunt-bot"

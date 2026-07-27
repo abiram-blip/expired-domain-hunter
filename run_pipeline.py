@@ -34,6 +34,22 @@ def slack(text):
         print(f"slack post failed: {e}", file=sys.stderr)
 
 
+def healthcheck_ping(n_delivered):
+    """External dead-man's-switch. Ping a hosted cron-monitor (healthchecks.io-style)
+    only when the pipeline RUNS TO COMPLETION (reaches finish(), incl. a legit 0-delivery
+    shortfall day). Hard stop()s and crashes never reach here, so no ping fires and the
+    monitor alerts — catching failure modes no in-run alert can (cron never fired, job
+    killed before it could post, empty Slack secret). No-op if the URL isn't configured."""
+    url = os.environ.get("HEALTHCHECK_PING_URL")
+    if not url:
+        return
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(url, data=f"delivered={n_delivered}".encode()), timeout=10)
+    except Exception as e:
+        print(f"healthcheck ping failed: {e}", file=sys.stderr)
+
+
 def run(cmd, **kw):
     print(f"$ {' '.join(cmd)}", flush=True)
     return subprocess.run(cmd, cwd=HERE, **kw)
@@ -80,11 +96,36 @@ def main():
     print("yesterday:", brief)
 
     # --- precheck ---
+    if not os.environ.get("SLACK_WEBHOOK_URL"):
+        # An empty webhook makes every alert below a silent no-op — surface that loudly
+        # in the run log so a misconfigured secret doesn't swallow its own alarms.
+        print("WARN: SLACK_WEBHOOK_URL is empty — all Slack alerts this run will be silent.")
     cookies_path = os.environ.get("EDH_COOKIES_JSON", os.path.expanduser("~/expireddomains_cookies.json"))
     if not os.path.exists(cookies_path) or os.path.getsize(cookies_path) < 10:
         stop("no expireddomains.net session cookie found. Open Claude Code and say "
              "the domain hunt needs a login fix — it may ask you to check your email "
              "for an MFA code.")
+    # Cookie freshness (meta sidecar written by the Mac refresh job, refresh_cookie.sh).
+    # A stale cookie can still be VALID (the remember-me cookie keeps sessions alive for
+    # days), so staleness is a LOUD WARNING, not a halt — harvest's exit-2 login-wall
+    # check stays the real gate. Missing/old meta means the Mac refresh job didn't run.
+    meta_path = cookies_path.replace(".json", ".meta.json")
+    cap = None
+    if os.path.exists(meta_path):
+        try:
+            cap = json.load(open(meta_path)).get("_captured_at")
+        except Exception:
+            cap = None
+    if cap is None:
+        slack("⚠️ hunt precheck: no cookie freshness meta — the Mac refresh job "
+              "(refresh_cookie.sh) may not have run. Proceeding; harvest will stop cleanly "
+              "if the session is actually dead.")
+    else:
+        age_h = (time.time() - cap) / 3600
+        if age_h > 24:
+            slack(f"⚠️ hunt precheck: session cookie is {age_h:.0f}h old (>24h) — the Mac "
+                  "refresh job did not run this morning (Mac asleep/offline?). Proceeding on "
+                  "the old cookie; check the dedicated Chrome if harvest fails.")
     state("precheck", "ok", 1)
 
     # --- carryover ---
@@ -185,10 +226,22 @@ def main():
     # --- uribl ---
     run(["python3", "ci_browser.py", "uribl", rfile("survivors.txt"), rfile("uribl.json")])
     uribl_data = load(rfile("uribl.json"))
-    survivors = [d for d in survivors if not uribl_data.get(d, {}).get("listed")]
+
+    # HOLD (do not deliver) any domain without an EXPLICIT clean not-listed result.
+    # A URIBL outage ("System is busy" x4) leaves a domain absent from uribl.json, and
+    # an unrecognized DOM leaves it {listed:False, raw:"unparsed"} — neither is a clean
+    # check, so neither may pass by default (mirrors the archive stage's "an errored
+    # check is not a clean check"). Held domains simply aren't delivered today.
+    def _uribl_clean(d):
+        v = uribl_data.get(d)
+        return bool(v) and v.get("listed") is False and v.get("raw") != "unparsed"
+    held = [d for d in survivors if not _uribl_clean(d)]
+    if held:
+        print(f"URIBL: holding {len(held)} unverified (unresolved/unparsed) out of delivery: {held}")
+    survivors = [d for d in survivors if _uribl_clean(d)]
     state("uribl", "ok", len(survivors))
     if not survivors:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed URIBL")
+        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed/held at URIBL")
         return
     open(rfile("survivors.txt"), "w").write("\n".join(survivors))
 
@@ -329,6 +382,7 @@ def finish(delivered, taste_rejects, note):
 
     if len(ledger_delivered) < 15:
         slack(f"Daily hunt: {len(ledger_delivered)}/15 delivered. {note or ''}")
+    healthcheck_ping(len(ledger_delivered))  # dead-man's-switch: the run completed
     print(f"DONE: {len(ledger_delivered)} delivered")
 
 

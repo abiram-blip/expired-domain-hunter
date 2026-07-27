@@ -9,3 +9,8 @@
 *.out
 *.err
 run.log
+
+# cookie-refresh runtime logs
+refresh_cookie.log
+cookie_launchd.out
+cookie_launchd.err
