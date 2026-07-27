@@ -89,7 +89,16 @@ jobs:
           git config user.name "daily-hunt-bot"
           git add -A
           git diff --cached --quiet || git commit -m "state: $EDH_RUN_DATE"
-          git push
+          # Push with a rebase-retry so a concurrent state-repo push (e.g. the Mac cookie
+          # refresh job) doesn't fail the run and strand today's ledger. CI only writes
+          # ledger/run; the cookie job only writes cookie/meta/session_health.log — different
+          # files, so a rebase replays cleanly. A genuine conflict aborts + fails loud
+          # (the Alert-on-failure step fires) rather than silently dropping either side.
+          git push || {
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort; echo "STATE REPO REBASE CONFLICT — not pushed"; exit 1; }
+            git push
+          }
 
       - name: Alert on failure
         if: failure()

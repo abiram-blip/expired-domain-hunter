@@ -51,7 +51,12 @@ jobs:
           git config user.name "daily-sync-bot"
           git add sync_seen.json taste_log.json
           git diff --cached --quiet || git commit -m "sync: $EDH_RUN_DATE"
-          git push
+          # rebase-retry: shared state repo, concurrent pushes (hunt/cookie job) are expected
+          git push || {
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort; echo "STATE REPO REBASE CONFLICT — not pushed"; exit 1; }
+            git push
+          }
 
       - name: Alert on failure
         if: failure()
