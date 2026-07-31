@@ -158,6 +158,14 @@ NEUTRAL_SUFFIX=('group','corp','corporation','associat','partner','holding','com
 TOKENS_GOOD=('tech','soft','system','data','cyber','cloud','digital','logic','network','analytic',
  'integrat','hosting','server','firewall','telecom','database','security','solution','website',
  'webhost','webdesign','app','code','sys','net','encrypt')
+# 2026-07-31: yield fix. The keyword WHEEL only surfaces 5-9 tokens/day; on days it lands on
+# suffix tokens (associat/company/group/corp) the harvest is dominated by personal-name firms
+# (juntoassociates, dreyeranddreyer, ...) that name_judge correctly rejects, starving the good
+# IT-name pool and delivering 0-4/day. These CORE IT/abstract tokens now harvest EVERY day IN
+# ADDITION to the wheel, so the high-yield IT inventory is always swept. The wheel still rotates
+# for breadth. No quality gate relaxed — this only widens the candidate pool.
+CORE_IT_TOKENS=('tech','soft','system','data','cyber','cloud','digital','logic','network',
+ 'hosting','security','app','code','sys')
 FIRSTNAMES=('john','james','mary','jason','tyler','david','mike','michael','sarah','don','bob','tom','joe','jim','bill','steve','mark','paul','peter','frank','gary','larry','carol','susan','linda','nancy','karen','lisa','kevin','brian','jeff','scott','eric','ryan','amy','anna','emma','jack','sam','alex','chris','dan','matt','nick','tony','kirby','taylor','mann')
 # 2026-07-17 sync: 12/18 of the 07-15 delivery (all fit=A, all passed every hard gate) came back
 # "no"/"Invalid" from the user's own review — confirmed via direct question that both wordings
@@ -341,10 +349,12 @@ def plan_harvest():
     passes+=[{'pass':'B','list':x,'pages':2,'url':_edurl(x,2008,price_max)} for x in LISTS_B]
     pass_c=[{'pass':'C','list':x,'pages':(4+2*boost if x=='godaddytdnam' else 2),'url':_edurl(x,2013,price_max)}
             for x in ('godaddytdnam','godaddyexpired','godaddycloseouts')]
-    for t in tokens:
+    # Core IT tokens sweep EVERY day; the wheel tokens add rotating breadth. Deduped, core first.
+    kw_tokens=list(dict.fromkeys(list(CORE_IT_TOKENS)+list(tokens)))
+    for t in kw_tokens:
         for x in ('godaddytdnam','godaddyexpired'):
             passes.append({'pass':'KW','list':x,'pages':2,'token':t,'url':_edurl(x,2008,1,f'&fdomain={t}')})
-    out={'date':today(),'boost':boost,'tokens':tokens,'window_hours':[lo,hi],
+    out={'date':today(),'boost':boost,'tokens':tokens,'kw_tokens':kw_tokens,'window_hours':[lo,hi],
          'raw_new_target':c.get('raw_new_target_per_day',180),
          'include_pass_c':True,
          'passes':passes,'pass_c':pass_c,
