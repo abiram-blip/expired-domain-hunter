@@ -7,7 +7,7 @@
   "sheet_webapp_token": "${SHEET_WEBAPP_TOKEN}",
   "slack_webhook_url": "${SLACK_WEBHOOK_URL}",
   "slack_channel": "#domain-hunt",
-  "target_per_run": 15,
+  "target_per_run": 8,
   "target_max_per_day": 20,
   "price_ceiling_usd": 5,
   "cadence_days": 1,

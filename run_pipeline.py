@@ -19,6 +19,17 @@ DATE = os.environ["EDH_RUN_DATE"]
 RUNDIR = os.path.join(HERE, "run", DATE)
 os.makedirs(RUNDIR, exist_ok=True)
 
+# Delivery floor (config target_per_run). Below this = a genuine shortfall (Slack note +
+# boost up); at/above = a normal day (boost decays). 2026-08-05: lowered 15->8 after the
+# user accepted that the real daily supply of names passing every rule is ~5-10, not 15-20
+# (name_judge is ~94% correct; the aged auction pool just doesn't hold 15-20 good names/day).
+# Quality gates are UNCHANGED — this only recalibrates the shortfall alarm and boost so they
+# stop firing on every (now-normal) sub-15 day.
+try:
+    FLOOR = int(json.load(open(os.path.join(HERE, "config.json"))).get("target_per_run", 8))
+except Exception:
+    FLOOR = 8
+
 
 def slack(text):
     url = os.environ.get("SLACK_WEBHOOK_URL")
@@ -182,7 +193,7 @@ def main():
     state("prescore", "ok", len(ab_candidates))
 
     if not ab_candidates:
-        finish(delivered=[], taste_rejects=[], note="SHORTFALL: 0/15 — no A/B candidates after harvest")
+        finish(delivered=[], taste_rejects=[], note=f"SHORTFALL: 0/{FLOOR} — no A/B candidates after harvest")
         return
 
     # --- name judgment (the one LLM call) ---
@@ -194,7 +205,7 @@ def main():
     print(f"name judgment: {len(accepted)} accepted / {len(ab_candidates)} candidates")
 
     if not accepted:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all candidates rejected on name")
+        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — all candidates rejected on name")
         return
 
     open(rfile("curated.txt"), "w").write("\n".join(accepted))
@@ -205,7 +216,7 @@ def main():
     survivors = [d for d in accepted if not blocklist.get(d)]
     state("blocklist", "ok", len(survivors))
     if not survivors:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed blocklist")
+        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — all failed blocklist")
         return
     open(rfile("survivors.txt"), "w").write("\n".join(survivors))
 
@@ -241,7 +252,7 @@ def main():
     survivors = [d for d in survivors if _uribl_clean(d)]
     state("uribl", "ok", len(survivors))
     if not survivors:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed/held at URIBL")
+        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — all failed/held at URIBL")
         return
     open(rfile("survivors.txt"), "w").write("\n".join(survivors))
 
@@ -261,7 +272,7 @@ def main():
                  if not archive_data.get(d, {}).get("flags") and "error" not in archive_data.get(d, {})]
     state("archive", "ok", len(survivors))
     if not survivors:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed archive history")
+        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — all failed archive history")
         return
     open(rfile("survivors.txt"), "w").write("\n".join(survivors))
 
@@ -271,7 +282,7 @@ def main():
     survivors = [d for d in survivors if vt_data.get(d, {}).get("malicious", 1) == 0]
     state("vt", "ok", len(survivors))
     if not survivors:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — all failed VirusTotal")
+        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — all failed VirusTotal")
         return
 
     # --- tier + rank + shortlist ---
@@ -292,7 +303,7 @@ def main():
 
     final = [d for d in survivors if tiered.get(d, {}).get("tier")]
     if not final:
-        finish(delivered=[], taste_rejects=taste_rejects, note="SHORTFALL: 0/15 — no live-auction survivors (Rule 1)")
+        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — no live-auction survivors (Rule 1)")
         return
     final.sort(key=lambda d: -prescore_all.get(d, {}).get("score", 0))
     final = final[:20]  # ceiling
@@ -331,7 +342,7 @@ def main():
 
     dump(rfile("shortlist.json"), {"rows": shortlist_rows})
     n = len(shortlist_rows)
-    note = None if n >= 15 else f"SHORTFALL: {n}/15 — bottleneck: see stage counts in state.json"
+    note = None if n >= FLOOR else f"SHORTFALL: {n}/{FLOOR} — bottleneck: see stage counts in state.json"
     finish(delivered=[r[0] for r in shortlist_rows], taste_rejects=taste_rejects, note=note)
 
 
@@ -354,7 +365,7 @@ def finish(delivered, taste_rejects, note):
         run(["python3", "hunt.py", "slack-post", rfile("shortlist.json")] + (["--note", note] if note else []))
     else:
         state("deliver", "ok", 0)
-        slack(note or "SHORTFALL: 0/15")
+        slack(note or f"SHORTFALL: 0/{FLOOR}")
 
     # Only mark domains actually confirmed appended as "delivered" in the ledger —
     # an unconfirmed append (exit 2/3) must not be treated as delivered, or a domain
@@ -366,7 +377,7 @@ def finish(delivered, taste_rejects, note):
     stats = {"delivered": len(ledger_delivered)}
     dump(rfile("stats.json"), stats)
 
-    boost_delta = -1 if len(ledger_delivered) >= 15 else 1
+    boost_delta = -1 if len(ledger_delivered) >= FLOOR else 1
     commit_cmd = [
         "python3", "hunt.py", "commit",
         "--delivered", rfile("delivered.json"),
@@ -380,8 +391,8 @@ def finish(delivered, taste_rejects, note):
     state("commit", "ok", len(ledger_delivered))
     run(["python3", "hunt.py", "state", "--finish"])
 
-    if len(ledger_delivered) < 15:
-        slack(f"Daily hunt: {len(ledger_delivered)}/15 delivered. {note or ''}")
+    if len(ledger_delivered) < FLOOR:
+        slack(f"Daily hunt: {len(ledger_delivered)}/{FLOOR} delivered. {note or ''}")
     healthcheck_ping(len(ledger_delivered))  # dead-man's-switch: the run completed
     print(f"DONE: {len(ledger_delivered)} delivered")
 
