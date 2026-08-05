@@ -14,3 +14,8 @@ run.log
 refresh_cookie.log
 cookie_launchd.out
 cookie_launchd.err
+
+# GoDaddy feed downloads (fetched fresh each run)
+all_expiring_auctions.json
+gd_auctions*.zip
+*.json.zip
