@@ -62,19 +62,21 @@ fi
 run_harness() {
   browser-harness <<'PY' 2>>"$LOG"
 import json, os, time
+MEMBER = "https://member.expireddomains.net/domains/godaddyexpired/?fwhoisage=2008&fpriceto=1&o=endtime&r=a"
 tabs = list_tabs()
 ed = next((t for t in tabs if "expireddomains.net" in (t.get("url","") or "")), None)
-status = "INVALID"
-if ed:
+if ed:                                   # reuse the persistent tab if present
     switch_tab(ed["targetId"])
-    js("location.href='https://member.expireddomains.net/domains/godaddyexpired/?fwhoisage=2008&fpriceto=1&o=endtime&r=a'")
-    wait_for_load(); time.sleep(1.5)
-    chk = json.loads(js(r"""(()=>JSON.stringify({
-      logout:/log\s?out/i.test(document.body?document.body.innerText:'')||!!document.querySelector('a[href*=logout]'),
-      pw:!!document.querySelector('input[type=password]')}))()"""))
-    if chk["logout"] and not chk["pw"]:
-        exec(open(os.path.join(os.environ["EDH_DIR"], "extract_cookies.py")).read())  # abs path
-        status = "VALID"
+    js("location.href=" + json.dumps(MEMBER))
+else:                                    # tabs gone (Chrome restart) — open one; do NOT
+    new_tab(MEMBER)                      # false-report a logout just because no tab existed
+wait_for_load(); time.sleep(1.5)
+chk = json.loads(js(r"""(()=>JSON.stringify({
+  logout:/log\s?out/i.test(document.body?document.body.innerText:'')||!!document.querySelector('a[href*=logout]'),
+  pw:!!document.querySelector('input[type=password]')}))()"""))
+status = "VALID" if (chk["logout"] and not chk["pw"]) else "INVALID"
+if status == "VALID":
+    exec(open(os.path.join(os.environ["EDH_DIR"], "extract_cookies.py")).read())  # abs path
 print("COOKIE_STATUS=" + status)
 PY
 }
