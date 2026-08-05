@@ -26,9 +26,14 @@ os.makedirs(RUNDIR, exist_ok=True)
 # Quality gates are UNCHANGED — this only recalibrates the shortfall alarm and boost so they
 # stop firing on every (now-normal) sub-15 day.
 try:
-    FLOOR = int(json.load(open(os.path.join(HERE, "config.json"))).get("target_per_run", 8))
+    _CFG = json.load(open(os.path.join(HERE, "config.json")))
+    FLOOR = int(_CFG.get("target_per_run", 8))
+    # Cap the A/B pool fed to the expensive name_judge + funnel stages. The GoDaddy feed
+    # (feed_harvest.py) surfaces thousands of in-window candidates vs the small slice
+    # expireddomains showed, so bound the pool to the best-scored N (prescore order).
+    AB_CAP = int(_CFG.get("ab_cap", 200))
 except Exception:
-    FLOOR = 8
+    FLOOR, AB_CAP = 8, 200
 
 
 def slack(text):
@@ -107,36 +112,12 @@ def main():
     print("yesterday:", brief)
 
     # --- precheck ---
+    # 2026-08-05: harvest moved to GoDaddy's public feed (feed_harvest.py) — NO expireddomains
+    # login/cookie/session/MFA anymore, so the old cookie-existence + freshness gates are gone.
     if not os.environ.get("SLACK_WEBHOOK_URL"):
         # An empty webhook makes every alert below a silent no-op — surface that loudly
         # in the run log so a misconfigured secret doesn't swallow its own alarms.
         print("WARN: SLACK_WEBHOOK_URL is empty — all Slack alerts this run will be silent.")
-    cookies_path = os.environ.get("EDH_COOKIES_JSON", os.path.expanduser("~/expireddomains_cookies.json"))
-    if not os.path.exists(cookies_path) or os.path.getsize(cookies_path) < 10:
-        stop("no expireddomains.net session cookie found. Open Claude Code and say "
-             "the domain hunt needs a login fix — it may ask you to check your email "
-             "for an MFA code.")
-    # Cookie freshness (meta sidecar written by the Mac refresh job, refresh_cookie.sh).
-    # A stale cookie can still be VALID (the remember-me cookie keeps sessions alive for
-    # days), so staleness is a LOUD WARNING, not a halt — harvest's exit-2 login-wall
-    # check stays the real gate. Missing/old meta means the Mac refresh job didn't run.
-    meta_path = cookies_path.replace(".json", ".meta.json")
-    cap = None
-    if os.path.exists(meta_path):
-        try:
-            cap = json.load(open(meta_path)).get("_captured_at")
-        except Exception:
-            cap = None
-    if cap is None:
-        slack("⚠️ hunt precheck: no cookie freshness meta — the Mac refresh job "
-              "(refresh_cookie.sh) may not have run. Proceeding; harvest will stop cleanly "
-              "if the session is actually dead.")
-    else:
-        age_h = (time.time() - cap) / 3600
-        if age_h > 24:
-            slack(f"⚠️ hunt precheck: session cookie is {age_h:.0f}h old (>24h) — the Mac "
-                  "refresh job did not run this morning (Mac asleep/offline?). Proceeding on "
-                  "the old cookie; check the dedicated Chrome if harvest fails.")
     state("precheck", "ok", 1)
 
     # --- carryover ---
@@ -144,26 +125,13 @@ def main():
     dump(rfile("carryover.json"), carry)
     state("carryover", "ok", len(carry))
 
-    # --- harvest ---
-    plan = json.loads(run_json(["python3", "hunt.py", "plan-harvest"]))
-    dump(rfile("plan.json"), plan)
-    r = run(["python3", "ci_browser.py", "harvest", rfile("plan.json"), RUNDIR])
-    if r.returncode == 2:
-        stop("expireddomains.net logged the session out mid-harvest. Open Claude Code "
-             "and say the domain hunt needs a login fix — check your email for an MFA "
-             "code when it asks, and reply there (not here in Slack) with the code.")
-    raw_total = 0
-    harvest_files = [f for f in os.listdir(RUNDIR) if f.startswith("harvest_") and f != "harvest_new.json"]
-    for f in harvest_files:
-        d = load(rfile(f))
-        raw_total += len(d) - (1 if "_captured_at" in d else 0)
-    state("harvest", "ok", raw_total)
-
-    # --- merge ---
-    merge_result = json.loads(run_json(
-        ["python3", "hunt.py", "merge-harvest"] + [rfile(f) for f in harvest_files]
-    ))
-    state("merge", "ok", merge_result.get("new", 0))
+    # --- harvest (GoDaddy PUBLIC feed — no login, no browser; 2026-08-05, see feed_harvest.py) ---
+    # Replaces the expireddomains.net member scrape whose login kept expiring / needing MFA.
+    # feed_harvest applies the SAME gates (.com/letters/<=15/price/age->WBY/Bid-only/seen/window/
+    # not-adult) and writes run/<date>/harvest_new.json directly — no per-list files, no merge step.
+    feed_stats = json.loads(run_json(["python3", "feed_harvest.py", RUNDIR]))
+    state("harvest", "ok", feed_stats.get("eligible", 0))
+    state("merge", "ok", feed_stats.get("kept", 0))
 
     # --- prescore (carryover + fresh) ---
     # 2026-07-18 fix: harvest_new.json is an incremental cache that NEVER prunes a
@@ -190,6 +158,10 @@ def main():
         set(d for d, v in {**prescore_carry, **prescore_fresh}.items() if v.get("fit") in ("A", "B")),
         key=lambda d: -{**prescore_carry, **prescore_fresh}[d]["score"],
     )
+    # Bound the expensive name_judge + funnel stages: keep the best-scored AB_CAP candidates.
+    # (The feed can yield hundreds of A/B; carryover is preserved by sort order, best first.)
+    if len(ab_candidates) > AB_CAP:
+        ab_candidates = ab_candidates[:AB_CAP]
     state("prescore", "ok", len(ab_candidates))
 
     if not ab_candidates:

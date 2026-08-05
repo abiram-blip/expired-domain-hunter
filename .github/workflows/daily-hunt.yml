@@ -45,7 +45,9 @@ jobs:
           cp state/ledger.json.bak ./ledger.json.bak 2>/dev/null || true
           rm -rf ./run && cp -r state/run ./run
           mkdir -p "./run/$EDH_RUN_DATE"
-          cp state/expireddomains_cookies.json ~/expireddomains_cookies.json
+          # Harvest moved to the GoDaddy public feed (feed_harvest.py) — no login needed.
+          # The cookie is only kept around harmlessly; copy is non-fatal if it's absent.
+          cp state/expireddomains_cookies.json ~/expireddomains_cookies.json 2>/dev/null || true
           cp state/expireddomains_cookies.meta.json ~/expireddomains_cookies.meta.json 2>/dev/null || true
 
       - name: Render config.json
