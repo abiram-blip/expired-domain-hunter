@@ -207,25 +207,12 @@ def main():
     state("spamhaus", "ok", len(survivors))
 
     # --- uribl ---
-    run(["python3", "ci_browser.py", "uribl", rfile("survivors.txt"), rfile("uribl.json")])
-    uribl_data = load(rfile("uribl.json"))
-
-    # HOLD (do not deliver) any domain without an EXPLICIT clean not-listed result.
-    # A URIBL outage ("System is busy" x4) leaves a domain absent from uribl.json, and
-    # an unrecognized DOM leaves it {listed:False, raw:"unparsed"} — neither is a clean
-    # check, so neither may pass by default (mirrors the archive stage's "an errored
-    # check is not a clean check"). Held domains simply aren't delivered today.
-    def _uribl_clean(d):
-        v = uribl_data.get(d)
-        return bool(v) and v.get("listed") is False and v.get("raw") != "unparsed"
-    held = [d for d in survivors if not _uribl_clean(d)]
-    if held:
-        print(f"URIBL: holding {len(held)} unverified (unresolved/unparsed) out of delivery: {held}")
-    survivors = [d for d in survivors if _uribl_clean(d)]
+    # 2026-08-05: uribl.com is now one of the DNS zones in the blocklist() stage above
+    # (multi.uribl.com), so URIBL-listed domains were already dropped at blocklist — no
+    # separate browser stage. This removes the LAST browser from the pipeline (harvest is
+    # the GoDaddy feed; everything else is DNS/HTTP/API). Kept as a labeled no-op for the
+    # state timeline / RUNBOOK parity.
     state("uribl", "ok", len(survivors))
-    if not survivors:
-        finish(delivered=[], taste_rejects=taste_rejects, note=f"SHORTFALL: 0/{FLOOR} — all failed/held at URIBL")
-        return
     open(rfile("survivors.txt"), "w").write("\n".join(survivors))
 
     # --- archive (pure API, no browser) ---

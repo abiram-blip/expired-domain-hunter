@@ -33,11 +33,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python deps + Playwright browser
-        run: |
-          pip install -r requirements.txt
-          python3 -m playwright install --with-deps chromium
-          sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Install Python deps
+        # 2026-08-05: no browser anywhere anymore — harvest is the GoDaddy feed (HTTP) and
+        # URIBL moved to DNS. Playwright/xvfb removed (faster CI, no headless Chromium).
+        run: pip install -r requirements.txt
 
       - name: Restore state (ledger.json, run/, session cookie)
         run: |
@@ -75,7 +74,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "run/$EDH_RUN_DATE"
-          xvfb-run -a python3 run_pipeline.py 2>&1 | tee "run/$EDH_RUN_DATE/headless.log"
+          python3 run_pipeline.py 2>&1 | tee "run/$EDH_RUN_DATE/headless.log"
 
       - name: Save state back
         if: always()

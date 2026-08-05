@@ -65,7 +65,10 @@ ZONES={"0spam":"0spamurl.fusionzero.com","abuse.ro":"uribl.abuse.ro","spamlookup
  "sem-fresh30":"fresh30.spameatingmonkey.net","sem-freshz":"freshzero.spameatingmonkey.net","sem-uri":"uribl.spameatingmonkey.net","sem-urired":"urired.spameatingmonkey.net",
  "spamhaus":"dbl.spamhaus.org","spfbl":"dnsbl.spfbl.net","suomispam":"dbl.suomispam.net","surbl":"multi.surbl.org",
  "swinog":"uribl.swinog.ch","dob":"dob.sibl.support-intelligence.net","woody":"uri.blacklist.woody.ch","zapbl":"rhsbl.zapbl.net",
- "scrollout-d":"reputation-domain.rbl.scrolloutf1.com","scrollout-n":"reputation-ns.rbl.scrolloutf1.com","spfbl-score":"score.spfbl.net"}
+ "scrollout-d":"reputation-domain.rbl.scrolloutf1.com","scrollout-n":"reputation-ns.rbl.scrolloutf1.com","spfbl-score":"score.spfbl.net",
+ "uribl":"multi.uribl.com"}  # 2026-08-05: uribl.com moved from the admin.uribl.com WEB FORM to DNS
+# (verified it answers over 1.1.1.1/8.8.8.8 at our low volume). blocklist()'s 127.0.0.1 + 127.255.*
+# exclusion already handles URIBL's query-refused/rate-limit codes correctly. Removes the last browser.
 
 def blocklist(doms):
     import dns.resolver, concurrent.futures
