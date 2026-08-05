@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Deterministic daily-hunt orchestrator for CI (no LLM in the sequencing loop —
-only name_judge.py's single OpenAI call needs an LLM). Mirrors RUNBOOK.md's 13 steps
-exactly; see RUNBOOK_CI.md for what's mechanically different in CI vs an interactive
-agent run. Every stage's rules (Rule 1-3, tiers, shortfall policy) are unchanged.
+"""Deterministic daily-hunt orchestrator (no LLM in the sequencing loop — only
+name_judge.py's single OpenAI call needs an LLM). Harvest is the GoDaddy public feed
+(feed_harvest.py); the whole pipeline is HTTP/DNS/API, no login, no browser. See
+RUNBOOK.md for the stages, gates, tiers, and shortfall policy.
 
 Run from the repo root with EDH_RUN_DATE already exported (the workflow sets this).
 """
