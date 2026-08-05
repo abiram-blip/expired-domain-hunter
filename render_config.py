@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Render config.json from config.template.json + environment variables.
-Run this before every pipeline invocation (run_hunt.sh does this automatically).
+The CI "Render config.json" step runs this before each pipeline invocation.
 Secrets (VT_API_KEY, SHEET_WEBAPP_URL, SHEET_WEBAPP_TOKEN, SLACK_WEBHOOK_URL) must
 be set in the environment (e.g. via `.env` + `set -a; source .env; set +a`).
 """

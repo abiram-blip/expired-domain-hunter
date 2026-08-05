@@ -38,16 +38,12 @@ jobs:
         # URIBL moved to DNS. Playwright/xvfb removed (faster CI, no headless Chromium).
         run: pip install -r requirements.txt
 
-      - name: Restore state (ledger.json, run/, session cookie)
+      - name: Restore state (ledger.json, run/)
         run: |
           cp state/ledger.json ./ledger.json
           cp state/ledger.json.bak ./ledger.json.bak 2>/dev/null || true
           rm -rf ./run && cp -r state/run ./run
           mkdir -p "./run/$EDH_RUN_DATE"
-          # Harvest moved to the GoDaddy public feed (feed_harvest.py) — no login needed.
-          # The cookie is only kept around harmlessly; copy is non-fatal if it's absent.
-          cp state/expireddomains_cookies.json ~/expireddomains_cookies.json 2>/dev/null || true
-          cp state/expireddomains_cookies.meta.json ~/expireddomains_cookies.meta.json 2>/dev/null || true
 
       - name: Render config.json
         env:
@@ -82,18 +78,14 @@ jobs:
           cp ./ledger.json state/ledger.json
           cp ./ledger.json.bak state/ledger.json.bak 2>/dev/null || true
           rm -rf state/run && cp -r ./run state/run
-          # NOTE: CI no longer writes the cookie back. The Mac refresh job
-          # (refresh_cookie.sh) is the SOLE writer of expireddomains_cookies.json, so CI
-          # cannot overwrite the authoritative fresh cookie with a rotated/degraded value.
           cd state
           git config user.email "actions@github.com"
           git config user.name "daily-hunt-bot"
           git add -A
           git diff --cached --quiet || git commit -m "state: $EDH_RUN_DATE"
-          # Push with a rebase-retry so a concurrent state-repo push (e.g. the Mac cookie
-          # refresh job) doesn't fail the run and strand today's ledger. CI only writes
-          # ledger/run; the cookie job only writes cookie/meta/session_health.log — different
-          # files, so a rebase replays cleanly. A genuine conflict aborts + fails loud
+          # Push with a rebase-retry so a concurrent state-repo push (daily-sync / keepalive)
+          # doesn't fail the run and strand today's ledger. Those writers touch different
+          # files, so a rebase replays cleanly; a genuine conflict aborts + fails loud
           # (the Alert-on-failure step fires) rather than silently dropping either side.
           git push || {
             git fetch origin main

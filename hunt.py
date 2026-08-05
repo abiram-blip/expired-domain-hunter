@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """Expired Domain Hunter v2 — local compute helpers for the DAILY pipeline.
-The AGENT drives browser steps (harvest, Spamhaus browser-fetch, URIBL loop, archive
-eyeball, sheet fallback paste) via browser-harness; this script does the deterministic parts.
+Deterministic, no-browser helpers. Harvest is a pure HTTP fetch of GoDaddy's public feed
+(feed_harvest.py); the whole pipeline is HTTP/DNS/API (no login, no browser) as of 2026-08-05.
 Export EDH_RUN_DATE=$(date +%F) at run start so a run crossing midnight stays in one run dir.
 
 Usage:
-  hunt.py plan-harvest                      -> today's harvest schedule (lists/pages/tokens/window/boost)
-  hunt.py merge-harvest <files...> [--date D] [--window LO,HI]
-                                            -> run/D/harvest_new.json (dedupe + seen-filter + endtime parse)
   hunt.py prescore   <domains.json>         -> {domain:{score,fit,reason}}  numeric name pre-rank
-  hunt.py blocklist  <domains.json>         -> {domain:[listed_zones]}      41-list DNS sweep
+  hunt.py blocklist  <domains.json>         -> {domain:[listed_zones]}      42-zone DNS sweep (incl uribl)
   hunt.py vt         <domains.json>         -> {domain:{malicious,...}}     needs VT_API_KEY
   hunt.py archive    <domains.json>         -> {domain:{years,first,last,flags}}
   hunt.py namegrade  <domains.json>         -> {domain:{fit,reason}}        A/B/C
@@ -50,10 +47,6 @@ def _sh(v):
         if isinstance(v,dict): v=v.get('score',0)
         return float(v)
     except (TypeError,ValueError): return 0.0
-def _window(l=None):
-    l=l if l is not None else load_ledger()
-    return [24,168] if l.get('harvest_boost',0)>0 else cfg().get('harvest_window_hours',[36,120])
-
 ZONES={"0spam":"0spamurl.fusionzero.com","abuse.ro":"uribl.abuse.ro","spamlookup":"bsb.spamlookup.net",
  "brukalai-b":"black.dnsbl.brukalai.lt","brukalai-l":"light.dnsbl.brukalai.lt","fmb-bl":"bl.fmb.la",
  "fmb-comm":"communicado.fmb.la","fmb-nsbl":"nsbl.fmb.la","fmb-short":"short.fmb.la",
@@ -161,14 +154,6 @@ NEUTRAL_SUFFIX=('group','corp','corporation','associat','partner','holding','com
 TOKENS_GOOD=('tech','soft','system','data','cyber','cloud','digital','logic','network','analytic',
  'integrat','hosting','server','firewall','telecom','database','security','solution','website',
  'webhost','webdesign','app','code','sys','net','encrypt')
-# 2026-07-31: yield fix. The keyword WHEEL only surfaces 5-9 tokens/day; on days it lands on
-# suffix tokens (associat/company/group/corp) the harvest is dominated by personal-name firms
-# (juntoassociates, dreyeranddreyer, ...) that name_judge correctly rejects, starving the good
-# IT-name pool and delivering 0-4/day. These CORE IT/abstract tokens now harvest EVERY day IN
-# ADDITION to the wheel, so the high-yield IT inventory is always swept. The wheel still rotates
-# for breadth. No quality gate relaxed — this only widens the candidate pool.
-CORE_IT_TOKENS=('tech','soft','system','data','cyber','cloud','digital','logic','network',
- 'hosting','security','app','code','sys')
 FIRSTNAMES=('john','james','mary','jason','tyler','david','mike','michael','sarah','don','bob','tom','joe','jim','bill','steve','mark','paul','peter','frank','gary','larry','carol','susan','linda','nancy','karen','lisa','kevin','brian','jeff','scott','eric','ryan','amy','anna','emma','jack','sam','alex','chris','dan','matt','nick','tony','kirby','taylor','mann')
 # 2026-07-17 sync: 12/18 of the 07-15 delivery (all fit=A, all passed every hard gate) came back
 # "no"/"Invalid" from the user's own review — confirmed via direct question that both wordings
@@ -254,49 +239,6 @@ def prescore(doms):
         out[d]={'score':s,'fit':fit,'reason':'; '.join(reason) or 'neutral'}
     return out
 
-_ET=re.compile(r'(?:(\d+)\s*d)?\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?(?:\s*\d+\s*s)?\s*$',re.I)
-def parse_endtime(s, base_ts):
-    """'10d 2h 22m' / '2D 11H' / '11h 22m left' / '22m' -> absolute unix ts, or None."""
-    s=re.sub(r'(?i)\b(ends?|in|left)\b',' ',str(s)).strip()
-    m=_ET.match(s)
-    if not m or not any(m.groups()): return None
-    dd,hh,mm=(int(x) if x else 0 for x in m.groups())
-    return base_ts + dd*86400 + hh*3600 + mm*60
-
-def merge_harvest(files, date, window=None):
-    lo,hi=window or _window()
-    seen=set(load_ledger().get('seen',[]))
-    path=os.path.join(rundir(date),'harvest_new.json')
-    # incremental: existing entries (already parsed+filtered) are preserved untouched, so
-    # re-runs and pass-C top-ups never re-anchor endtimes or clobber earlier passes
-    try: out=json.load(open(path))
-    except (FileNotFoundError,json.JSONDecodeError): out={}
-    merged={}
-    for f in files:
-        b=os.path.basename(f)
-        if not b.startswith('harvest_') or b=='harvest_new.json': continue  # never ingest own output
-        data=json.load(open(f))
-        base=data.pop('_captured_at',None) or os.path.getmtime(f)  # harvest stamps capture time; mtime is fallback
-        for d,meta in data.items():
-            dl=d.lower()
-            if dl in seen or dl in out: continue
-            ends=parse_endtime(meta.get('Endtime',''),base)
-            row=dict(meta); row['auction_ends_at']=ends
-            if ends is None: row['no_endtime']=True  # buy-now/closeout or unparsed — agent judges
-            if dl not in merged or _price(row.get('Price'))<_price(merged[dl].get('Price')):
-                row['list']=meta.get('list',b.replace('harvest_','').replace('.json',''))
-                merged[dl]=row
-    now=time.time(); added=0
-    for d,r in merged.items():
-        if r['auction_ends_at'] is not None:
-            hrs=(r['auction_ends_at']-now)/3600
-            if hrs<lo or hrs>hi: continue
-            r['hours_left']=round(hrs,1)
-            r['auction_ends_local']=datetime.datetime.fromtimestamp(r['auction_ends_at']).strftime('%Y-%m-%d %H:%M')
-        out[d]=r; added+=1
-    wjson(path,out)
-    return {"new":added,"total":len(out),"window":[lo,hi],"written":path}
-
 def _price(p):
     try: return float(re.sub(r'[^0-9.]','',str(p)) or 'inf')
     except ValueError: return float('inf')
@@ -321,47 +263,6 @@ def tier(rows):
         pr=_price(r.get('Price'))
         t=next((t['id'] for t in tiers if wby and wby<=t['wby_max'] and sh>=t['sh_min'] and pr<=t['price_max']),None)
         out[d]=dict(r,tier=t,spamhaus=sh,no_live_auction=False)
-    return out
-
-LISTS_A=['godaddytdnam','godaddyexpired','dynadotexpired','namecheapauctions','gnameauctions']
-LISTS_B=['godaddycloseouts','dynadotcloseouts','sedobargains']
-def _edurl(lst,fwhoisage,fpriceto,extra=''):
-    # 2026-07-12: user asked NOT to use their saved-search values (fmaxhost=12/fminhost=2/
-    # fwhoisagemax=1990) — wants the agent's own filter design instead, tuned for volume. No
-    # site-level char-length or age-floor param; code-level <=15 char check (namegrade/prescore)
-    # is the sole length gate, applied uniformly across all lists.
-    return (f"https://member.expireddomains.net/domains/{lst}/?ftlds[]=2&fonlycharhost=1"
-            f"&fwhoisage={fwhoisage}&fpriceto={fpriceto}&o=endtime&r=a{extra}")
-
-def plan_harvest():
-    # 2026-07-12 redesign: 3 days of data (629/398/164 new) showed age<=2008 + same-list dedup
-    # shrinks fast. Pass C (2009-2013) is now a STANDARD daily pass, not boost-gated — doubles
-    # the sourcing pool while every safety gate (blocklist/URIBL/VT/history/name) stays identical;
-    # only the tier label (T4/T5 vs T1/T2/T3) differs. Keyword tokens/day raised 2->5 (24-token
-    # wheel completes in ~5 days instead of 12) — cheap, reaches inventory outside the top-N
-    # endtime-sorted view. No site-level char-length filter (user's GoDaddy-only saved-search
-    # cap intentionally not applied here; code-level <=15 char check is the sole length gate).
-    c=cfg(); l=load_ledger()
-    boost=min(2,max(0,l.get('harvest_boost',0)))
-    wheel=c.get('keyword_wheel',[]); pos=l.get('keyword_wheel_pos',0)%max(1,len(wheel))
-    ntok=5+2*boost
-    tokens=[wheel[(pos+i)%len(wheel)] for i in range(ntok)] if wheel else []
-    lo,hi=_window(l)
-    price_max=cfg().get('price_ceiling_usd',5)
-    passes=[{'pass':'A','list':x,'pages':(6+2*boost if x=='godaddytdnam' else 2),'url':_edurl(x,2008,1)} for x in LISTS_A]
-    passes+=[{'pass':'B','list':x,'pages':2,'url':_edurl(x,2008,price_max)} for x in LISTS_B]
-    pass_c=[{'pass':'C','list':x,'pages':(4+2*boost if x=='godaddytdnam' else 2),'url':_edurl(x,2013,price_max)}
-            for x in ('godaddytdnam','godaddyexpired','godaddycloseouts')]
-    # Core IT tokens sweep EVERY day; the wheel tokens add rotating breadth. Deduped, core first.
-    kw_tokens=list(dict.fromkeys(list(CORE_IT_TOKENS)+list(tokens)))
-    for t in kw_tokens:
-        for x in ('godaddytdnam','godaddyexpired'):
-            passes.append({'pass':'KW','list':x,'pages':2,'token':t,'url':_edurl(x,2008,1,f'&fdomain={t}')})
-    out={'date':today(),'boost':boost,'tokens':tokens,'kw_tokens':kw_tokens,'window_hours':[lo,hi],
-         'raw_new_target':c.get('raw_new_target_per_day',180),
-         'include_pass_c':True,
-         'passes':passes,'pass_c':pass_c,
-         'note':'pass C (2009-2013, T4/T5) runs every day by default now; boost widens it further'}
     return out
 
 def append_rows(path):
@@ -579,13 +480,6 @@ if __name__=='__main__':
     elif cmd=='prescore': print(json.dumps(prescore(rd(sys.argv[2]))))
     elif cmd=='tier': print(json.dumps(tier(rd(sys.argv[2]))))
     elif cmd=='seen': print(json.dumps(seen_filter(rd(sys.argv[2]))))
-    elif cmd=='plan-harvest': print(json.dumps(plan_harvest(),indent=1))
-    elif cmd=='merge-harvest':
-        import argparse; a=argparse.ArgumentParser(); a.add_argument('files',nargs='+')
-        a.add_argument('--date',default=today()); a.add_argument('--window')
-        n=a.parse_args(sys.argv[2:])
-        w=[float(x) for x in n.window.split(',')] if n.window else None
-        print(json.dumps(merge_harvest(n.files,n.date,w)))
     elif cmd=='append': sys.exit(append_rows(sys.argv[2]))
     elif cmd=='slack-post':
         note=sys.argv[sys.argv.index('--note')+1] if '--note' in sys.argv else None
