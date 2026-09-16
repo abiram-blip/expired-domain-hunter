@@ -50,13 +50,13 @@ jobs:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
           SHEET_WEBAPP_TOKEN: ${{ secrets.SHEET_WEBAPP_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GCHAT_DOMAIN_HUNT_WEBHOOK_URL: ${{ secrets.GCHAT_DOMAIN_HUNT_WEBHOOK_URL }}
         run: python3 render_config.py
 
       - name: Run daily hunt
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GCHAT_DOMAIN_HUNT_WEBHOOK_URL: ${{ secrets.GCHAT_DOMAIN_HUNT_WEBHOOK_URL }}
           # External dead-man's-switch (healthchecks.io-style). Pinged on run completion;
           # the monitor alerts if no ping lands in the daily window. No-op until the
           # HEALTHCHECK_PING_URL secret is set. See plan find-a-way-to-glistening-grove.
@@ -95,7 +95,7 @@ jobs:
 
       - name: Alert on failure
         if: failure()
+        env:
+          GCHAT_DOMAIN_HUNT_WEBHOOK_URL: ${{ secrets.GCHAT_DOMAIN_HUNT_WEBHOOK_URL }}
         run: |
-          curl -s -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"⚠️ ALERT: daily-hunt workflow failed — check https://github.com/abiram-blip/expired-domain-hunter/actions for logs.\"}" \
-            "${{ secrets.SLACK_WEBHOOK_URL }}"
+          python3 chat_notify.py "⚠️ ALERT: daily-hunt workflow failed — check https://github.com/abiram-blip/expired-domain-hunter/actions for logs." --event-key "daily-hunt-failure-${{ github.run_id }}"

@@ -13,7 +13,7 @@ Usage:
   hunt.py tier       <verified.json>        -> {domain:{tier,...}}          T1-T5 from WBY/score/price
   hunt.py seen       <domains.json>         -> filters out ledger.seen, prints NEW only
   hunt.py append     <shortlist.json>       -> POST rows to sheet webhook; TSV fallback on stdout, exit 2
-  hunt.py slack-post <shortlist.json> [--note s] -> post daily summary to Slack (best-effort, never blocks delivery)
+  hunt.py chat-post <shortlist.json> [--note s] -> post daily summary to Google Chat (best-effort, never blocks delivery)
   hunt.py state --date D --stage S --status ok|partial|failed|pending [--count N] [--note s] [--shortfall N] [--start] [--finish]
   hunt.py status [--brief] [--days N]       -> recent run reports from run/*/state.json
   hunt.py carryover [--date D]              -> prior run's live undelivered survivors + stage reached
@@ -300,13 +300,11 @@ def append_rows(path):
 # GoDaddy_Buy_Link, Name_Fit, Name_Note, Auction_Ends, Auction_Status, Spamhaus_Score,
 # Domain_Age_Yrs, First_Archived, Blocklists_49, URIBL_web, VirusTotal, History_Review,
 # MultiRBL_You, MultiRBL_Colleague, Backlinks, Price, Tier
-def slack_post(path, note=None):
+def chat_post(path, note=None):
     # Best-effort notification only — never blocks or reverses the sheet delivery.
     # Returns 0 sent, 1 not configured/failed (caller should log and move on, not retry the sheet).
-    import urllib.request, urllib.error, socket
-    c=cfg(); url=c.get('slack_webhook_url')
-    if not url:
-        sys.stderr.write("no slack_webhook_url configured — skipping Slack post\n"); return 1
+    from chat_notify import post_chat
+    c=cfg()
     j=json.load(open(path))
     rows=j.get('rows') if isinstance(j,dict) else j
     date=today()
@@ -318,18 +316,9 @@ def slack_post(path, note=None):
         urgent=' :rotating_light: URGENT' if 'URGENT' in str(price) or 'URGENT' in str(note_) else ''
         lines.append(f"• <{link}|*{dom}*> — {note_ or 'n/a'} — Tier {tier or '?'} — {price or '?'} — ends {ends or 'n/a'} ({fit}){urgent}")
     text="\n".join(lines)
-    try:
-        body=json.dumps({'text':text,'channel':c.get('slack_channel')}).encode()
-        req=urllib.request.Request(url,data=body,headers={'Content-Type':'application/json'})
-        resp=urllib.request.urlopen(req,timeout=20)
-        ok=resp.read().decode().strip()=='ok'
-        if resp.status==200 and ok:
-            print(json.dumps({'posted':len(rows),'via':'slack-webhook'})); return 0
-        sys.stderr.write(f"slack webhook non-ok reply: {ok}\n"); return 1
-    except (socket.timeout,TimeoutError):
-        sys.stderr.write("slack webhook timeout\n"); return 1
-    except urllib.error.URLError as e:
-        sys.stderr.write(f"slack webhook unreachable: {e}\n"); return 1
+    if post_chat(text, url=c.get('gchat_domain_hunt_webhook_url')):
+        print(json.dumps({'posted':len(rows),'via':'google-chat-webhook'})); return 0
+    return 1
 
 STAGES=['precheck','harvest','merge','prescore','blocklist','spamhaus','uribl','archive','vt','deliver','commit']
 def state_path(date): return os.path.join(rundir(date),'state.json')
@@ -481,9 +470,9 @@ if __name__=='__main__':
     elif cmd=='tier': print(json.dumps(tier(rd(sys.argv[2]))))
     elif cmd=='seen': print(json.dumps(seen_filter(rd(sys.argv[2]))))
     elif cmd=='append': sys.exit(append_rows(sys.argv[2]))
-    elif cmd=='slack-post':
+    elif cmd in ('chat-post', 'slack-post'):  # Legacy CLI alias also delivers to Google Chat.
         note=sys.argv[sys.argv.index('--note')+1] if '--note' in sys.argv else None
-        sys.exit(slack_post(sys.argv[2], note))
+        sys.exit(chat_post(sys.argv[2], note))
     elif cmd=='state':
         import argparse; a=argparse.ArgumentParser()
         a.add_argument('--date',default=today()); a.add_argument('--stage'); a.add_argument('--status')

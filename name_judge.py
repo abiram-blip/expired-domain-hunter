@@ -9,7 +9,7 @@ Usage: python3 name_judge.py <domains.txt> <out.json>
 Needs OPENAI_API_KEY in the environment. Output: {domain: {"verdict": "accept"|"reject",
 "reason": "..."}}
 
-Also tracks estimated cumulative spend against a starting balance and alerts Slack when
+Also tracks estimated cumulative spend against a starting balance and alerts Google Chat when
 the estimated remaining balance drops below a threshold. OpenAI has no reliable "check my
 balance" API for modern project-scoped keys (the old /v1/dashboard/billing/credit_grants
 endpoint is undocumented and widely reported broken for these — confirmed via research
@@ -50,18 +50,10 @@ def _save_spend(spend):
     json.dump(spend, open(SPEND_FILE, "w"), indent=2)
 
 
-def _slack(text):
-    url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not url:
-        return
-    try:
-        req = urllib.request.Request(
-            url, data=json.dumps({"text": text}).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
+def _notify(text):
+    from chat_notify import post_chat
+    return post_chat(text)
+
 
 SYSTEM_PROMPT = """You are the final human-taste name-quality gate for an expired-domain \
 acquisition pipeline. Every domain you see has ALREADY passed: live-auction check, \
@@ -153,7 +145,7 @@ if __name__ == "__main__":
 
     remaining = STARTING_BALANCE_USD - spend.get("spent_usd", 0.0)
     if remaining < LOW_BALANCE_THRESHOLD_USD:
-        _slack(f"⚠️ ALERT: estimated OpenAI balance is low (~${remaining:.2f} left of "
+        _notify(f"⚠️ ALERT: estimated OpenAI balance is low (~${remaining:.2f} left of "
                f"${STARTING_BALANCE_USD:.2f}, based on tracked token usage — top up at "
                "platform.openai.com/settings/billing or the name-judgment step will start "
                "failing and every domain will default to reject). Once topped up, tell "

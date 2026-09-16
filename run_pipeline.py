@@ -19,7 +19,7 @@ DATE = os.environ["EDH_RUN_DATE"]
 RUNDIR = os.path.join(HERE, "run", DATE)
 os.makedirs(RUNDIR, exist_ok=True)
 
-# Delivery floor (config target_per_run). Below this = a genuine shortfall (Slack note +
+# Delivery floor (config target_per_run). Below this = a genuine shortfall (Google Chat note +
 # boost up); at/above = a normal day (boost decays). 2026-08-05: lowered 15->8 after the
 # user accepted that the real daily supply of names passing every rule is ~5-10, not 15-20
 # (name_judge is ~94% correct; the aged auction pool just doesn't hold 15-20 good names/day).
@@ -36,18 +36,9 @@ except Exception:
     FLOOR, AB_CAP = 8, 200
 
 
-def slack(text):
-    url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not url:
-        return
-    try:
-        req = urllib.request.Request(
-            url, data=json.dumps({"text": text}).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        print(f"slack post failed: {e}", file=sys.stderr)
+def notify(text):
+    from chat_notify import post_chat
+    return post_chat(text)
 
 
 def healthcheck_ping(n_delivered):
@@ -55,7 +46,7 @@ def healthcheck_ping(n_delivered):
     only when the pipeline RUNS TO COMPLETION (reaches finish(), incl. a legit 0-delivery
     shortfall day). Hard stop()s and crashes never reach here, so no ping fires and the
     monitor alerts — catching failure modes no in-run alert can (cron never fired, job
-    killed before it could post, empty Slack secret). No-op if the URL isn't configured."""
+    killed before it could post, empty Google Chat secret). No-op if the URL isn't configured."""
     url = os.environ.get("HEALTHCHECK_PING_URL")
     if not url:
         return
@@ -87,7 +78,7 @@ def state(stage, status, count=None):
 
 
 def stop(reason):
-    slack(f"⚠️ ALERT: daily hunt stopped — {reason}")
+    notify(f"⚠️ ALERT: daily hunt stopped — {reason}")
     state("precheck", "failed")
     sys.exit(1)
 
@@ -114,10 +105,10 @@ def main():
     # --- precheck ---
     # 2026-08-05: harvest moved to GoDaddy's public feed (feed_harvest.py) — NO expireddomains
     # login/cookie/session/MFA anymore, so the old cookie-existence + freshness gates are gone.
-    if not os.environ.get("SLACK_WEBHOOK_URL"):
+    if not os.environ.get("GCHAT_DOMAIN_HUNT_WEBHOOK_URL"):
         # An empty webhook makes every alert below a silent no-op — surface that loudly
         # in the run log so a misconfigured secret doesn't swallow its own alarms.
-        print("WARN: SLACK_WEBHOOK_URL is empty — all Slack alerts this run will be silent.")
+        print("WARN: GCHAT_DOMAIN_HUNT_WEBHOOK_URL is empty — all Google Chat alerts this run will be silent.")
     state("precheck", "ok", 1)
 
     # --- carryover ---
@@ -318,13 +309,13 @@ def finish(delivered, taste_rejects, note):
             appended = False
             state("deliver", "failed", 0)
             kind = "webhook refused / unreachable" if r.returncode == 2 else "AMBIGUOUS reply — CHECK THE SHEET before pasting"
-            slack(f"⚠️ ALERT: sheet delivery failed ({kind}). {len(delivered)} domains ready but "
+            notify(f"⚠️ ALERT: sheet delivery failed ({kind}). {len(delivered)} domains ready but "
                   f"NOT confirmed delivered — see run/{DATE}/shortlist.json and headless.log for the "
                   f"TSV to paste manually. Do not re-run append blindly if exit code was 3.")
-        run(["python3", "hunt.py", "slack-post", rfile("shortlist.json")] + (["--note", note] if note else []))
+        run(["python3", "hunt.py", "chat-post", rfile("shortlist.json")] + (["--note", note] if note else []))
     else:
         state("deliver", "ok", 0)
-        slack(note or f"SHORTFALL: 0/{FLOOR}")
+        notify(note or f"SHORTFALL: 0/{FLOOR}")
 
     # Only mark domains actually confirmed appended as "delivered" in the ledger —
     # an unconfirmed append (exit 2/3) must not be treated as delivered, or a domain
@@ -351,7 +342,7 @@ def finish(delivered, taste_rejects, note):
     run(["python3", "hunt.py", "state", "--finish"])
 
     if len(ledger_delivered) < FLOOR:
-        slack(f"Daily hunt: {len(ledger_delivered)}/{FLOOR} delivered. {note or ''}")
+        notify(f"Daily hunt: {len(ledger_delivered)}/{FLOOR} delivered. {note or ''}")
     healthcheck_ping(len(ledger_delivered))  # dead-man's-switch: the run completed
     print(f"DONE: {len(ledger_delivered)} delivered")
 
@@ -360,5 +351,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        slack(f"⚠️ ALERT: daily hunt crashed — {str(e)[:300]}")
+        notify(f"⚠️ ALERT: daily hunt crashed — {str(e)[:300]}")
         raise

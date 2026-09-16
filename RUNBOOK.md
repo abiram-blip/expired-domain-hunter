@@ -1,6 +1,6 @@
 # Expired Domain Hunter — runbook (v3, 2026-08-05)
 
-Deliver **aged, clean, auction-live .com domains** to the Google Sheet + Slack #domain-hunt each
+Deliver **aged, clean, auction-live .com domains** to the Google Sheet + Google Chat Domain Hunt each
 day, quality-ranked and ready to bid on. For cold-outreach mailboxes (root 301s to the client).
 Bidding and payment are always the user's.
 
@@ -44,7 +44,7 @@ parked-PBN); name grade A/B + `name_judge` accept; not already in `ledger.seen`.
 (the real DBL gate runs in the blocklist DNS stage), so tiering is effectively by age + price.
 
 ## Daily pipeline (`run_pipeline.py`)
-1. **precheck** — assert SLACK_WEBHOOK_URL non-empty (warn if not). No cookie/login checks anymore.
+1. **precheck** — assert GCHAT_DOMAIN_HUNT_WEBHOOK_URL non-empty (warn if not). No cookie/login checks anymore.
 2. **carryover** — prior run's verified-but-undelivered survivors re-enter.
 3. **harvest** — `feed_harvest.py`: fetch `inventory.auctions.godaddy.com/all_expiring_auctions.json.zip`
    (~995K records), apply all gates above, write `run/<date>/harvest_new.json`. Caps to
@@ -59,12 +59,12 @@ parked-PBN); name grade A/B + `name_judge` accept; not already in `ledger.seen`.
 9. **vt** — VirusTotal; drop malicious ≥1.
 10. **tier + deliver** — `tier()` stamps T1-T5, rank, deliver up to the ceiling via `hunt.py
     append` (sheet webhook; exit 2 = not appended, exit 3 = ambiguous → check sheet). 12h
-    delivery guard. Then `hunt.py slack-post` (best-effort). Then commit + `healthcheck_ping`.
+    delivery guard. Then `hunt.py chat-post` (best-effort). Then commit + `healthcheck_ping`.
 
 ## Targets & shortfall (recalibrated 2026-08-05)
 Floor **8** (`config.target_per_run`, read as `FLOOR` in run_pipeline), ceiling **20**
 (`target_max_per_day`). The genuine daily supply of names passing every rule is ~5-12 (some 0-3
-days) — by design, not a failure. Below the floor: a `SHORTFALL: N/8` Slack note + boost `+1`
+days) — by design, not a failure. Below the floor: a `SHORTFALL: N/8` Google Chat note + boost `+1`
 (cap 2); at/above: boost `-1`. Never pad below the floor by relaxing a rule; never truncate above
 the ceiling. If the user wants more volume, the levers are widening age or price — a product
 tradeoff (see [[project-expired-domain-hunter]] #31), never a gate relaxation.
@@ -79,7 +79,7 @@ tradeoff (see [[project-expired-domain-hunter]] #31), never a gate relaxation.
   No-op until the secret is set.
 - **keepalive.yml**: weekly empty commit so GitHub doesn't auto-disable the crons (daily runs push
   to the STATE repo, which doesn't reset that timer).
-- **Alert on failure**: the workflow posts to Slack on any job failure.
+- **Alert on failure**: the workflow posts to Google Chat on any job failure.
 - **Save state** runs `if: always()` with a rebase-retry push (safe against concurrent state-repo
   writers). Commit is idempotent within a day; the ledger has a `.bak` + corruption guard.
 
@@ -97,6 +97,6 @@ Acquire, Backlinks, Price, Tier.
 
 ## Files
 `feed_harvest.py` (harvest) · `run_pipeline.py` (orchestrator) · `hunt.py` (prescore/blocklist/
-archive/vt/tier/append/slack-post/commit/carryover) · `name_judge.py` (name grader) ·
+archive/vt/tier/append/chat-post/commit/carryover) · `name_judge.py` (name grader) ·
 `render_config.py` · `sync_pipeline.py` (sheet sync) · workflows `daily-hunt.yml` / `daily-sync.yml`
 / `keepalive.yml`.

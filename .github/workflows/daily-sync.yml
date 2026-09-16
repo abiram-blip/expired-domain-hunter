@@ -37,7 +37,7 @@ jobs:
         env:
           SHEET_WEBAPP_URL: ${{ secrets.SHEET_WEBAPP_URL }}
           SHEET_WEBAPP_TOKEN: ${{ secrets.SHEET_WEBAPP_TOKEN }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GCHAT_DOMAIN_HUNT_WEBHOOK_URL: ${{ secrets.GCHAT_DOMAIN_HUNT_WEBHOOK_URL }}
           EDH_STATE_DIR: ${{ github.workspace }}/state
         run: |
           set -o pipefail
@@ -60,7 +60,7 @@ jobs:
 
       - name: Alert on failure
         if: failure()
+        env:
+          GCHAT_DOMAIN_HUNT_WEBHOOK_URL: ${{ secrets.GCHAT_DOMAIN_HUNT_WEBHOOK_URL }}
         run: |
-          curl -s -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"⚠️ ALERT: daily-sync workflow failed — check https://github.com/abiram-blip/expired-domain-hunter/actions for logs.\"}" \
-            "${{ secrets.SLACK_WEBHOOK_URL }}"
+          python3 chat_notify.py "⚠️ ALERT: daily-sync workflow failed — check https://github.com/abiram-blip/expired-domain-hunter/actions for logs." --event-key "daily-sync-failure-${{ github.run_id }}"

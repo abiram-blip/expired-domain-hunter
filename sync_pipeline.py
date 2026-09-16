@@ -4,7 +4,7 @@
 Reads the delivery sheet via the Apps Script webhook's doGet endpoint (added
 2026-07-20 specifically to make this possible — see sheet_webapp.gs), diffs
 today's Payment Ststus column against what a prior run last saw, and posts
-what changed to Slack.
+what changed to Google Chat.
 
 Also appends every observed accept/reject to a durable, git-backed log
 (state/taste_log.json). A CI run has no access to the local
@@ -30,23 +30,14 @@ TASTE_LOG_PATH = os.path.join(STATE_DIR, "taste_log.json")
 
 ACCEPT_STATUSES = {"submitted bid", "submitted", "accepted", "won"}
 REJECT_STATUSES = {"no", "invalid", "not a good name", "rejected", "weird name"}
-# Bid-outcome statuses, not name-taste signals — tracked in the Slack summary
+# Bid-outcome statuses, not name-taste signals — tracked in the Google Chat summary
 # but not written to taste_log.json (that log is for name-quality feedback).
 NEUTRAL_STATUSES = {"outbid", "priced out", "lost"}
 
 
-def slack(text):
-    url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not url:
-        return
-    try:
-        req = urllib.request.Request(
-            url, data=json.dumps({"text": text}).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        print(f"slack post failed: {e}", file=sys.stderr)
+def notify(text):
+    from chat_notify import post_chat
+    return post_chat(text)
 
 
 def fetch_sheet():
@@ -142,7 +133,7 @@ def main():
         lines.append(f"❓ Other status ({len(changes['other'])}): " + ", ".join(f"{c['domain']} ({c['status']})" for c in changes["other"]))
     summary = "\n".join(lines)
     print(summary)
-    slack(summary)
+    notify(summary)
 
 
 if __name__ == "__main__":
